@@ -5,7 +5,8 @@ Particle Photo 관리자 페이지 서버
 ## 프로젝트 소개
 - 사진과 인적 정보를 관리하는 웹 기반 관리자 페이지입니다.
 - 사진(이미지) 업로드, 이름/조직/직무/직위/이메일 등 정보 추가/수정/삭제, 검색 기능 제공
-- people.json 파일과 이미지 파일을 관리하며, 서버 API를 통해 실시간으로 데이터가 반영됩니다.
+- **운영/배포 환경에서는 모든 데이터와 이미지를 Firebase Firestore/Storage에 저장**하며, 로컬 파일(images/people.json, images/*.png)은 필요하지 않습니다.
+- **로컬 개발/테스트 환경에서는 Firebase 환경변수가 없을 때만 images/people.json, images/*.png를 샘플 데이터로 사용**합니다.
 
 ---
 
@@ -14,23 +15,25 @@ Particle Photo 관리자 페이지 서버
 - **항목 추가**: 이미지 업로드 및 정보 입력 후 추가
 - **항목 편집**: 정보 및 이미지 교체 가능
 - **항목 삭제**: 선택 또는 개별 삭제
-- **실시간 반영**: 모든 변경사항이 서버의 people.json 및 images 폴더에 즉시 반영
+- **실시간 반영**: 모든 변경사항이 서버의 데이터에 즉시 반영
 
 ---
 
-## 폴더 구조
+## 폴더 구조 (최신 권장)
 ```
 particlePhotoEN/
-├── admin.html          # 관리자 페이지 (프론트엔드)
-├── admin.css           # 관리자 페이지 스타일
-├── admin.js            # 관리자 페이지 JS
-├── server.js           # Node.js Express 서버 (API 및 이미지 업로드)
-├── images/
-│   ├── people.json     # 인적 데이터(JSON)
-│   └── *.png           # 인물 사진 이미지 파일
-├── index.html          # 메인 페이지
-└── ...
+├── admin.html        # 관리자 페이지 (프론트엔드)
+├── admin.css         # 관리자 페이지 스타일
+├── admin.js          # 관리자 페이지 JS
+├── server.js         # Node.js Express 서버 (API 및 이미지 업로드)
+├── firebase.js       # Firebase 연동 설정
+├── index.html        # 메인 페이지
+├── package.json
+├── README.md
+└── ... (테스트, 설정, 기타 파일)
 ```
+> 운영/배포 환경에서는 images/people.json, images/*.png 파일 및 폴더가 필요하지 않습니다.
+> 로컬 개발/테스트 시에만 샘플 데이터로 존재할 수 있습니다.
 
 ---
 
@@ -64,7 +67,7 @@ FIREBASE_STORAGE_BUCKET=your-project-id.appspot.com
 - **private_key**는 줄바꿈을 반드시 `\n`으로 변환해서 한 줄로 넣어야 합니다.
 - `.env` 파일은 반드시 `.gitignore`에 추가하세요.
 
-### 2. people.json 샘플 데이터
+### 2. people.json 샘플 데이터 (로컬 개발/테스트용)
 ```json
 [
   {
@@ -102,7 +105,8 @@ FIREBASE_STORAGE_BUCKET=your-project-id.appspot.com
 ---
 
 ## 기타 참고사항
-- **이미지 파일**은 반드시 images 폴더에 업로드되어야 합니다.
+- **운영/배포 환경에서는 모든 데이터와 이미지를 Firebase에 저장**하며, images/people.json, images/*.png는 필요하지 않습니다.
+- **로컬 개발/테스트 환경에서는 Firebase 환경변수가 없을 때만 images/people.json, images/*.png를 사용**합니다.
 - **API 경로**: `/api/people` (CRUD)
 - **관리자 페이지**: `/admin.html`
 - **메인 페이지**: `/index.html`
