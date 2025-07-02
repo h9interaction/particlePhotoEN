@@ -66,8 +66,8 @@ class AdminManager {
         const container = document.getElementById('itemsContainer');
         container.innerHTML = '';
         const data = filtered || this.people;
-        data.forEach((person, index) => {
-            const item = this.createItemCard(person, index);
+        data.forEach((person) => {
+            const item = this.createItemCard(person);
             container.appendChild(item);
         });
         this.applyGridCount();
@@ -77,14 +77,14 @@ class AdminManager {
         }
     }
 
-    createItemCard(person, index) {
+    createItemCard(person) {
         const card = document.createElement('div');
         card.className = 'item-card';
-        card.dataset.index = index;
+        card.dataset.englishName = person.englishName;
         const imagePath = person.imageUrl || `images/${person.imageFile || person.englishName + '.png'}?v=${Date.now()}`;
         card.innerHTML = `
             <div class="item-header">
-                <input type="checkbox" class="item-checkbox" data-index="${index}">
+                <input type="checkbox" class="item-checkbox" data-english-name="${person.englishName}">
             </div>
             <img src="${imagePath}" alt="${person.koreanName}" class="item-image" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjE1MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZGRkIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPkltYWdlIG5vdCBmb3VuZDwvdGV4dD48L3N2Zz4='">
             <div class="item-info">
@@ -100,15 +100,15 @@ class AdminManager {
         `;
         card.addEventListener('click', (e) => {
             if (e.target.classList.contains('item-checkbox')) return;
-            this.editItem(index);
+            this.editItemByEnglishName(person.englishName);
         });
         const checkbox = card.querySelector('.item-checkbox');
         checkbox.addEventListener('change', (e) => {
             if (e.target.checked) {
-                this.selectedItems.add(index);
+                this.selectedItems.add(person.englishName);
                 card.classList.add('selected');
             } else {
-                this.selectedItems.delete(index);
+                this.selectedItems.delete(person.englishName);
                 card.classList.remove('selected');
             }
         });
@@ -222,14 +222,14 @@ class AdminManager {
         if (this.selectedItems.size === checkboxes.length) {
             checkboxes.forEach(checkbox => {
                 checkbox.checked = false;
-                this.selectedItems.delete(parseInt(checkbox.dataset.index));
+                this.selectedItems.delete(checkbox.dataset.englishName);
                 checkbox.closest('.item-card').classList.remove('selected');
             });
             selectAllBtn.textContent = '전체 선택';
         } else {
             checkboxes.forEach(checkbox => {
                 checkbox.checked = true;
-                this.selectedItems.add(parseInt(checkbox.dataset.index));
+                this.selectedItems.add(checkbox.dataset.englishName);
                 checkbox.closest('.item-card').classList.add('selected');
             });
             selectAllBtn.textContent = '전체 해제';
@@ -243,9 +243,8 @@ class AdminManager {
         if (!confirm('정말로 삭제하시겠습니까?')) return;
         try {
             this.showLoading(true);
-            const sortedIndices = Array.from(this.selectedItems).sort((a, b) => b - a);
-            for (const index of sortedIndices) {
-                const englishName = this.people[index].englishName;
+            const sortedEnglishNames = Array.from(this.selectedItems).sort((a, b) => b.localeCompare(a));
+            for (const englishName of sortedEnglishNames) {
                 const response = await fetch(`/api/people/${englishName}`, {
                     method: 'DELETE'
                 });
@@ -264,8 +263,9 @@ class AdminManager {
             this.showLoading(false);
         }
     }
-    // 편집 모달 열기
-    editItem(index) {
+    editItemByEnglishName(englishName) {
+        const index = this.people.findIndex(p => p.englishName === englishName);
+        if (index === -1) return;
         this.editIndex = index;
         const person = this.people[index];
         document.getElementById('editImagePreview').src = person.imageUrl || `images/${person.imageFile || person.englishName + '.png'}?v=${Date.now()}`;
