@@ -7,6 +7,8 @@ class AdminManager {
         this.selectedFile = null;
         this.editIndex = null;
         this.editImageFile = null;
+        this.cropper = null;
+        this.editingContext = null; // 'add' 또는 'edit'
         this.init();
     }
 
@@ -30,13 +32,32 @@ class AdminManager {
         document.getElementById('selectAllBtn').addEventListener('click', () => this.toggleSelectAll());
         document.getElementById('deleteSelectedBtn').addEventListener('click', () => this.deleteSelected());
         document.getElementById('imageUpload').addEventListener('change', (e) => this.handleFileSelect(e));
-        document.getElementById('dragDropArea').addEventListener('click', () => document.getElementById('imageUpload').click());
+        document.getElementById('dragDropArea').addEventListener('click', (e) => {
+            // 미리보기 이미지를 클릭한 경우에는 파일 선택 창을 열지 않음
+            if (e.target.id !== 'previewImage') {
+                document.getElementById('imageUpload').click();
+            }
+        });
         document.getElementById('dragDropArea').addEventListener('dragover', (e) => this.handleDragOver(e));
         document.getElementById('dragDropArea').addEventListener('drop', (e) => this.handleDrop(e));
         document.getElementById('editModalCancelBtn').addEventListener('click', () => this.closeEditModal());
         document.getElementById('editForm').addEventListener('submit', (e) => this.saveEdit(e));
+        document.getElementById('editImagePreview').addEventListener('click', () => this.reEditImage());
+        document.getElementById('changeImageBtn').addEventListener('click', () => document.getElementById('editImageUpload').click());
         document.getElementById('editImageUpload').addEventListener('change', (e) => this.handleEditImageSelect(e));
         document.getElementById('editModalDeleteBtn').addEventListener('click', () => this.deleteEditItem());
+
+        // 이미지 미리보기 클릭 시 재편집
+        document.getElementById('previewImage').addEventListener('click', (e) => {
+            e.stopPropagation(); // 이벤트 버블링 방지
+            this.reEditNewImage();
+        });
+
+        // 이미지 편집 모달 이벤트
+        document.getElementById('editorSaveBtn').addEventListener('click', () => this.saveEditedImage());
+        document.getElementById('editorCancelBtn').addEventListener('click', () => this.closeImageEditor());
+        document.getElementById('brightness').addEventListener('input', (e) => this.applyImageFilters());
+        document.getElementById('contrast').addEventListener('input', (e) => this.applyImageFilters());
     }
 
     async loadPeople() {
@@ -118,6 +139,7 @@ class AdminManager {
     handleFileSelect(event) {
         const file = event.target.files[0];
         if (file) {
+            this.editingContext = 'add';
             this.processImageFile(file);
         }
     }
@@ -133,6 +155,18 @@ class AdminManager {
             this.processImageFile(files[0]);
         }
     }
+    reEditNewImage() {
+        if (!this.selectedFile) return;
+        this.editingContext = 'add';
+        this.openImageEditor(URL.createObjectURL(this.selectedFile));
+    }
+
+    reEditImage() {
+        this.editingContext = 'edit';
+        const imageSrc = document.getElementById('editImagePreview').src;
+        this.openImageEditor(imageSrc);
+    }
+
     processImageFile(file) {
         if (!file.type.startsWith('image/')) {
             this.showMessage('이미지 파일만 업로드 가능합니다.', 'error');
@@ -140,21 +174,96 @@ class AdminManager {
         }
         const reader = new FileReader();
         reader.onload = (e) => {
-            const dragDropArea = document.getElementById('dragDropArea');
-            dragDropArea.innerHTML = `<img src="${e.target.result}" style="max-width: 100%; max-height: 150px; border-radius: 4px;">`;
+            this.openImageEditor(e.target.result);
         };
         reader.readAsDataURL(file);
-        this.selectedFile = file;
+    }
+
+    openImageEditor(imageSrc) {
+        const modal = document.getElementById('imageEditorModal');
+        const image = document.getElementById('imageToCrop');
+        
+        let src = imageSrc;
+        if (this.editingContext === 'add' && this.selectedFile) {
+            src = URL.createObjectURL(this.selectedFile);
+        } else if (this.editingContext === 'edit' && this.editImageFile) {
+            src = URL.createObjectURL(this.editImageFile);
+        }
+        image.src = src;
+
+        modal.style.display = 'block';
+
+        image.onload = () => {
+            if (this.cropper) {
+                this.cropper.destroy();
+            }
+            this.cropper = new Cropper(image, {
+                aspectRatio: 4 / 3,
+                viewMode: 1,
+                autoCropArea: 1,
+                background: false,
+                ready: () => {
+                    this.applyImageFilters();
+                }
+            });
+        };
+    }
+
+    applyImageFilters() {
+        const brightness = document.getElementById('brightness').value;
+        const contrast = document.getElementById('contrast').value;
+        const imageElement = this.cropper.getImageData();
+        const cropperCanvas = this.cropper.getCropBoxData();
+        const image = document.querySelector('.cropper-canvas img');
+
+        if (image) {
+            image.style.filter = `grayscale(100%) brightness(${brightness}%) contrast(${contrast}%)`;
+        }
+    }
+
+    closeImageEditor() {
+        document.getElementById('imageEditorModal').style.display = 'none';
+        if (this.cropper) {
+            this.cropper.destroy();
+            this.cropper = null;
+        }
+        document.getElementById('imageUpload').value = ''; // 파일 선택 초기화
+    }
+
+    saveEditedImage() {
+        if (!this.cropper) return;
+
+        const canvas = this.cropper.getCroppedCanvas({ width: 400, height: 300 });
+        const ctx = canvas.getContext('2d');
+        const brightness = document.getElementById('brightness').value;
+        const contrast = document.getElementById('contrast').value;
+
+        ctx.filter = `grayscale(100%) brightness(${brightness}%) contrast(${contrast}%)`;
+        ctx.drawImage(canvas, 0, 0, 400, 300);
+
+        canvas.toBlob((blob) => {
+            const editedFile = new File([blob], "edited_image.png", { type: "image/png" });
+
+            if (this.editingContext === 'add') {
+                this.selectedFile = editedFile;
+                const previewImage = document.getElementById('previewImage');
+                previewImage.src = URL.createObjectURL(this.selectedFile);
+                previewImage.style.display = 'block';
+                document.getElementById('dragDropArea').querySelector('p').style.display = 'none';
+            } else if (this.editingContext === 'edit') {
+                this.editImageFile = editedFile;
+                document.getElementById('editImagePreview').src = URL.createObjectURL(this.editImageFile);
+            }
+
+            this.closeImageEditor();
+        }, 'image/png');
     }
     clearForm() {
-        document.getElementById('koreanName').value = '';
-        document.getElementById('englishName').value = '';
-        document.getElementById('organization').value = '';
-        document.getElementById('role').value = '';
-        document.getElementById('position').value = '';
-        document.getElementById('email').value = '';
-        document.getElementById('imageUpload').value = '';
-        document.getElementById('dragDropArea').innerHTML = '<p>이미지를 드래그하거나 클릭하여 선택하세요</p>';
+        document.getElementById('addForm').reset();
+        const previewImage = document.getElementById('previewImage');
+        previewImage.style.display = 'none';
+        previewImage.src = '';
+        document.getElementById('dragDropArea').querySelector('p').style.display = 'block';
         this.selectedFile = null;
     }
     async addItem() {
@@ -286,12 +395,8 @@ class AdminManager {
     handleEditImageSelect(event) {
         const file = event.target.files[0];
         if (file && file.type.startsWith('image/')) {
-            this.editImageFile = file;
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                document.getElementById('editImagePreview').src = e.target.result;
-            };
-            reader.readAsDataURL(file);
+            this.editingContext = 'edit';
+            this.processImageFile(file);
         }
     }
     async saveEdit(event) {
@@ -410,74 +515,4 @@ window.addEventListener('DOMContentLoaded', () => {
 });
 window.adminManager = adminManager;
 
-let cropper;
-let dragDropArea, cropImage, previewImage, cropDoneBtn, imageUpload;
-
-document.addEventListener('DOMContentLoaded', function() {
-    dragDropArea = document.getElementById('dragDropArea');
-    cropImage = document.getElementById('cropImage');
-    previewImage = document.getElementById('previewImage');
-    cropDoneBtn = document.getElementById('cropDoneBtn');
-    imageUpload = document.getElementById('imageUpload');
-    
-    if (!dragDropArea || !cropImage || !previewImage || !cropDoneBtn || !imageUpload) {
-        console.error('Required DOM elements not found');
-        return;
-    }
-    
-    dragDropArea.addEventListener('click', () => {
-        imageUpload.click();
-    });
-    
-    imageUpload.addEventListener('change', function(e) {
-        const file = e.target.files[0];
-        if (!file || !cropImage) return;
-        
-        cropImage.src = URL.createObjectURL(file);
-        cropImage.style.display = 'block';
-        previewImage.style.display = 'none';
-        
-        // 이미지 로드 완료 후 Cropper 초기화
-        cropImage.onload = function() {
-            try {
-                if (cropper) cropper.destroy();
-                cropper = new Cropper(cropImage, {
-                    aspectRatio: 4/3,
-                    viewMode: 1,
-                    autoCropArea: 1,
-                    minCropBoxWidth: 400,
-                    minCropBoxHeight: 300,
-                    ready() {
-                        cropDoneBtn.style.display = 'inline-block';
-                    }
-                });
-            } catch (error) {
-                console.error('Cropper initialization failed:', error);
-            }
-        };
-    });
-    
-    cropDoneBtn.addEventListener('click', function() {
-        if (!cropper || !cropImage || !previewImage) return;
-        try {
-            const canvas = cropper.getCroppedCanvas({ width: 400, height: 300 });
-            const ctx = canvas.getContext('2d');
-            const imgData = ctx.getImageData(0, 0, 400, 300);
-            for (let i = 0; i < imgData.data.length; i += 4) {
-                const avg = (imgData.data[i] + imgData.data[i+1] + imgData.data[i+2]) / 3;
-                imgData.data[i] = imgData.data[i+1] = imgData.data[i+2] = avg;
-            }
-            ctx.putImageData(imgData, 0, 0);
-            canvas.toBlob(blob => {
-                adminManager.selectedFile = new File([blob], 'cropped.png', { type: 'image/png' });
-                previewImage.src = canvas.toDataURL('image/png');
-                previewImage.style.display = 'block';
-                cropDoneBtn.style.display = 'none';
-                cropImage.style.display = 'none';
-                if (cropper) cropper.destroy();
-            }, 'image/png');
-        } catch (error) {
-            console.error('Image processing failed:', error);
-        }
-    });
-}); 
+ 
