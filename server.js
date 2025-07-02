@@ -369,10 +369,22 @@ function parseArrayFromString(arrayString) {
 app.get('/api/people', async (req, res) => {
     try {
         console.log('GET /api/people 요청 받음');
-        const snapshot = await db.collection('people').get();
-        const people = snapshot.docs.map(doc => doc.data());
-        console.log(`${people.length}개의 people 데이터 반환`);
-        res.json(people);
+        if (firebase && firebase.db) {
+            const snapshot = await firebase.db.collection('people').get();
+            const people = snapshot.docs.map(doc => doc.data());
+            console.log(`${people.length}개의 people 데이터 반환`);
+            res.json(people);
+        } else {
+            // 로컬 파일 시스템 사용 (Firebase 미설정 시)
+            let people = [];
+            try {
+                const peopleContent = await fs.readFile('./images/people.json', 'utf8');
+                people = JSON.parse(peopleContent);
+            } catch (error) {
+                console.log('people.json 파일이 없어 빈 배열 반환');
+            }
+            res.json(people);
+        }
     } catch (error) {
         console.error('GET /api/people 에러:', error);
         res.status(500).json({ error: error.message });
