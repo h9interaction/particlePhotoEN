@@ -1,0 +1,152 @@
+# macOS 시스템 파일
+._*
+
+# Firebase 보안 파일
+firebase-service-account.json
+firebase-config.js
+firebase-credentials.json
+*.firebase.json
+
+# 환경 변수 파일
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# Node.js 관련
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+
+# 로그 파일
+*.log
+logs/
+*.log.*
+
+# 임시 파일
+*.tmp
+*.temp
+.DS_Store
+Thumbs.db
+
+# IDE 설정 파일
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 백업 파일
+*.backup
+*.bak
+backup/
+*.zip
+
+# 테스트 관련
+coverage/
+.nyc_output/
+test-results/
+
+# 빌드 결과물
+dist/
+build/
+out/
+
+# CORS 설정 (보안상 민감할 수 있음)
+cors.json
+
+# 개인 정보가 포함된 데이터 파일
+people.json
+images.json
+
+# 이미지 파일 (용량이 클 수 있음)
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.svg
+images/
+
+# 기타 보안 관련
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+secrets/
+
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Logs
+logs
+*.log
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+
+# nyc test coverage
+.nyc_output
+
+# Dependency directories
+node_modules/
+jspm_packages/
+
+# Optional npm cache directory
+.npm
+
+# Optional REPL history
+.node_repl_history
+
+# Output of 'npm pack'
+*.tgz
+
+# Yarn Integrity file
+.yarn-integrity
+
+# dotenv environment variables file
+.env
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Backup files
+backup/
+*.bak
+*.backup
+
+# Temporary files
+*.tmp
+*.temp
