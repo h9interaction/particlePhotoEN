@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Particle Photo 관리자</title>
     <link rel="stylesheet" href="admin.css">
+    <link  href="https://cdn.jsdelivr.net/npm/cropperjs@1.5.13/dist/cropper.min.css" rel="stylesheet">
 </head>
 <body>
     <!-- 토스트 컨테이너 -->
@@ -28,9 +29,13 @@
                     <form id="addForm" class="add-form">
                         <!-- 이미지 업로드 -->
                         <div class="form-group">
+                            
                             <label>이미지 업로드</label>
                             <div id="dragDropArea" class="drag-drop-area">
                                 <p>이미지를 드래그하거나 클릭하여 선택하세요<br />400x300px 흑백 png 이미지</p>
+                                <img id="cropImage" style="display:none; max-width:100%;" />
+                                <img id="previewImage" style="display:none; max-width:100%; max-height:150px; border-radius:4px;" />
+                                <button id="cropDoneBtn" style="display:none; margin-top:10px;">완료</button>
                             </div>
                             <input type="file" id="imageUpload" accept="image/*" style="display: none;">
                         </div>
@@ -188,5 +193,6 @@
     </div>
 
     <script src="admin.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/cropperjs@1.5.13/dist/cropper.min.js"></script>
 </body>
 </html> 

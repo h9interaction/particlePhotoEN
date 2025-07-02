@@ -408,4 +408,76 @@ let adminManager;
 window.addEventListener('DOMContentLoaded', () => {
     adminManager = new AdminManager();
 });
-window.adminManager = adminManager; 
+window.adminManager = adminManager;
+
+let cropper;
+let dragDropArea, cropImage, previewImage, cropDoneBtn, imageUpload;
+
+document.addEventListener('DOMContentLoaded', function() {
+    dragDropArea = document.getElementById('dragDropArea');
+    cropImage = document.getElementById('cropImage');
+    previewImage = document.getElementById('previewImage');
+    cropDoneBtn = document.getElementById('cropDoneBtn');
+    imageUpload = document.getElementById('imageUpload');
+    
+    if (!dragDropArea || !cropImage || !previewImage || !cropDoneBtn || !imageUpload) {
+        console.error('Required DOM elements not found');
+        return;
+    }
+    
+    dragDropArea.addEventListener('click', () => {
+        imageUpload.click();
+    });
+    
+    imageUpload.addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (!file || !cropImage) return;
+        
+        cropImage.src = URL.createObjectURL(file);
+        cropImage.style.display = 'block';
+        previewImage.style.display = 'none';
+        
+        // 이미지 로드 완료 후 Cropper 초기화
+        cropImage.onload = function() {
+            try {
+                if (cropper) cropper.destroy();
+                cropper = new Cropper(cropImage, {
+                    aspectRatio: 4/3,
+                    viewMode: 1,
+                    autoCropArea: 1,
+                    minCropBoxWidth: 400,
+                    minCropBoxHeight: 300,
+                    ready() {
+                        cropDoneBtn.style.display = 'inline-block';
+                    }
+                });
+            } catch (error) {
+                console.error('Cropper initialization failed:', error);
+            }
+        };
+    });
+    
+    cropDoneBtn.addEventListener('click', function() {
+        if (!cropper || !cropImage || !previewImage) return;
+        try {
+            const canvas = cropper.getCroppedCanvas({ width: 400, height: 300 });
+            const ctx = canvas.getContext('2d');
+            const imgData = ctx.getImageData(0, 0, 400, 300);
+            for (let i = 0; i < imgData.data.length; i += 4) {
+                const avg = (imgData.data[i] + imgData.data[i+1] + imgData.data[i+2]) / 3;
+                imgData.data[i] = imgData.data[i+1] = imgData.data[i+2] = avg;
+            }
+            ctx.putImageData(imgData, 0, 0);
+            canvas.toBlob(blob => {
+                adminManager.selectedFile = new File([blob], 'cropped.png', { type: 'image/png' });
+                previewImage.src = canvas.toDataURL('image/png');
+                previewImage.style.display = 'block';
+                cropDoneBtn.style.display = 'none';
+                cropImage.style.display = 'none';
+                if (cropper) cropper.destroy();
+            }, 'image/png');
+        } catch (error) {
+            console.error('Image processing failed:', error);
+        }
+    });
+}); 
