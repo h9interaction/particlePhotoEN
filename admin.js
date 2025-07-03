@@ -25,39 +25,120 @@ class AdminManager {
         if (gridCountSelect) {
             gridCountSelect.addEventListener('change', () => this.applyGridCount());
         }
-        document.getElementById('refreshBtn').addEventListener('click', () => this.refreshData());
-        document.getElementById('addBtn').addEventListener('click', () => this.addItem());
-        document.getElementById('clearFormBtn').addEventListener('click', () => this.clearForm());
+        // 기존 요소들에 대한 조건부 이벤트 리스너
+        const refreshBtn = document.getElementById('refreshBtn');
+        if (refreshBtn) {
+            refreshBtn.addEventListener('click', () => this.refreshData());
+        }
+        
         document.getElementById('searchInput').addEventListener('input', (e) => this.handleSearch(e));
         document.getElementById('selectAllBtn').addEventListener('click', () => this.toggleSelectAll());
         document.getElementById('deleteSelectedBtn').addEventListener('click', () => this.deleteSelected());
-        document.getElementById('imageUpload').addEventListener('change', (e) => this.handleFileSelect(e));
-        document.getElementById('dragDropArea').addEventListener('click', (e) => {
-            // 미리보기 이미지를 클릭한 경우에는 파일 선택 창을 열지 않음
-            if (e.target.id !== 'previewImage') {
-                document.getElementById('imageUpload').click();
-            }
-        });
-        document.getElementById('dragDropArea').addEventListener('dragover', (e) => this.handleDragOver(e));
-        document.getElementById('dragDropArea').addEventListener('drop', (e) => this.handleDrop(e));
+        // 기존 dragDropArea는 제거되었으므로 이벤트 리스너 제거
         document.getElementById('editModalCancelBtn').addEventListener('click', () => this.closeEditModal());
         document.getElementById('editForm').addEventListener('submit', (e) => this.saveEdit(e));
-        document.getElementById('editImagePreview').addEventListener('click', () => this.reEditImage());
-        document.getElementById('changeImageBtn').addEventListener('click', () => document.getElementById('editImageUpload').click());
-        document.getElementById('editImageUpload').addEventListener('change', (e) => this.handleEditImageSelect(e));
+        // 이미지 관련 이벤트는 setupEditModalDragDrop에서 처리됨
         document.getElementById('editModalDeleteBtn').addEventListener('click', () => this.deleteEditItem());
 
-        // 이미지 미리보기 클릭 시 재편집
-        document.getElementById('previewImage').addEventListener('click', (e) => {
-            e.stopPropagation(); // 이벤트 버블링 방지
-            this.reEditNewImage();
-        });
+        // previewImage 요소는 더 이상 존재하지 않음
 
+        // 새항목 추가 버튼 이벤트
+        document.getElementById('addNewItemBtn').addEventListener('click', () => this.openAddModal());
+        
         // 이미지 편집 모달 이벤트
         document.getElementById('editorSaveBtn').addEventListener('click', () => this.saveEditedImage());
         document.getElementById('editorCancelBtn').addEventListener('click', () => this.closeImageEditor());
-        document.getElementById('brightness').addEventListener('input', (e) => this.applyImageFilters());
-        document.getElementById('contrast').addEventListener('input', (e) => this.applyImageFilters());
+        document.getElementById('brightness').addEventListener('input', () => this.applyImageFilters());
+        document.getElementById('contrast').addEventListener('input', () => this.applyImageFilters());
+        
+        // 편집 모달 드래그 앤 드롭 이벤트
+        this.setupEditModalDragDrop();
+    }
+    
+    // 편집 모달 드래그 앤 드롭 설정
+    setupEditModalDragDrop() {
+        const editDragDropArea = document.getElementById('editDragDropArea');
+        const editImageUpload = document.getElementById('editImageUpload');
+        const editImagePreview = document.getElementById('editImagePreview');
+        const changeImageBtn = document.getElementById('changeImageBtn');
+        
+        // 드래그 앤 드롭 이벤트
+        editDragDropArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            editDragDropArea.classList.add('drag-over');
+        });
+        
+        editDragDropArea.addEventListener('dragleave', () => {
+            editDragDropArea.classList.remove('drag-over');
+        });
+        
+        editDragDropArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            editDragDropArea.classList.remove('drag-over');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                this.handleEditImageFile(files[0]);
+            }
+        });
+        
+        // 클릭으로 파일 선택 (미리보기 이미지가 아닌 경우에만)
+        editDragDropArea.addEventListener('click', (e) => {
+            if (e.target !== editImagePreview) {
+                editImageUpload.click();
+            }
+        });
+        
+        changeImageBtn.addEventListener('click', () => {
+            editImageUpload.click();
+        });
+        
+        editImageUpload.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                this.handleEditImageFile(e.target.files[0]);
+            }
+        });
+        
+        // 미리보기 이미지 클릭 시 이미지 편집 (이벤트 버블링 방지)
+        editImagePreview.addEventListener('click', (e) => {
+            e.stopPropagation(); // 이벤트 버블링 방지
+            if (this.editSelectedFile) {
+                this.openImageEditor(this.editSelectedFile);
+            } else if (editImagePreview.src) {
+                // editSelectedFile이 없으면 현재 미리보기 이미지 사용
+                this.openImageEditor(editImagePreview.src);
+            }
+        });
+    }
+    
+    // 편집 모달 이미지 파일 처리
+    handleEditImageFile(file) {
+        if (!file.type.startsWith('image/')) {
+            this.showMessage('이미지 파일만 업로드할 수 있습니다.', 'error');
+            return;
+        }
+        
+        this.editSelectedFile = file;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const editImagePreview = document.getElementById('editImagePreview');
+            editImagePreview.src = e.target.result;
+            editImagePreview.style.display = 'block';
+            document.getElementById('editDragDropArea').querySelector('p').style.display = 'none';
+        };
+        reader.readAsDataURL(file);
+    }
+    
+    // 기존 이미지를 File 객체로 변환
+    async loadExistingImageAsFile(imageSrc) {
+        try {
+            const response = await fetch(imageSrc);
+            const blob = await response.blob();
+            const filename = imageSrc.split('/').pop() || 'image.png';
+            this.editSelectedFile = new File([blob], filename, { type: blob.type });
+        } catch (error) {
+            console.warn('기존 이미지 로드 실패:', error);
+            this.editSelectedFile = null;
+        }
     }
 
     async loadPeople() {
@@ -105,9 +186,9 @@ class AdminManager {
         const imagePath = person.imageUrl || `images/${person.imageFile || person.englishName + '.png'}?v=${Date.now()}`;
         card.innerHTML = `
             <div class="item-header">
+                <img src="${imagePath}" alt="${person.koreanName}" class="item-image" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjE1MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZGRkIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPkltYWdlIG5vdCBmb3VuZDwvdGV4dD48L3N2Zz4='">
                 <input type="checkbox" class="item-checkbox" data-english-name="${person.englishName}">
             </div>
-            <img src="${imagePath}" alt="${person.koreanName}" class="item-image" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjE1MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZGRkIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPkltYWdlIG5vdCBmb3VuZDwvdGV4dD48L3N2Zz4='">
             <div class="item-info">
                 <div class="item-name">${person.koreanName}</div>
                 <div class="item-filename">${person.englishName}.png</div>
@@ -136,47 +217,18 @@ class AdminManager {
         return card;
     }
 
-    handleFileSelect(event) {
-        const file = event.target.files[0];
-        if (file) {
-            this.editingContext = 'add';
-            this.processImageFile(file);
-        }
-    }
-    handleDragOver(event) {
-        event.preventDefault();
-        event.currentTarget.classList.add('dragover');
-    }
-    handleDrop(event) {
-        event.preventDefault();
-        event.currentTarget.classList.remove('dragover');
-        const files = event.dataTransfer.files;
-        if (files.length > 0) {
-            this.processImageFile(files[0]);
-        }
-    }
-    reEditNewImage() {
-        if (!this.selectedFile) return;
-        this.editingContext = 'add';
-        this.openImageEditor(URL.createObjectURL(this.selectedFile));
-    }
+    // 이제 편집 모달에서 통합 처리됨
 
-    reEditImage() {
-        this.editingContext = 'edit';
-        const imageSrc = document.getElementById('editImagePreview').src;
-        this.openImageEditor(imageSrc);
-    }
+    // reEditImage 메서드는 편집 모달의 이미지 클릭으로 대체됨
 
     processImageFile(file) {
         if (!file.type.startsWith('image/')) {
             this.showMessage('이미지 파일만 업로드 가능합니다.', 'error');
             return;
         }
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            this.openImageEditor(e.target.result);
-        };
-        reader.readAsDataURL(file);
+        
+        // 편집 모달용 파일 처리로 통합
+        this.handleEditImageFile(file);
     }
 
     openImageEditor(imageSrc) {
@@ -184,10 +236,8 @@ class AdminManager {
         const image = document.getElementById('imageToCrop');
         
         let src = imageSrc;
-        if (this.editingContext === 'add' && this.selectedFile) {
-            src = URL.createObjectURL(this.selectedFile);
-        } else if (this.editingContext === 'edit' && this.editImageFile) {
-            src = URL.createObjectURL(this.editImageFile);
+        if (this.editSelectedFile) {
+            src = URL.createObjectURL(this.editSelectedFile);
         }
         image.src = src;
 
@@ -256,36 +306,66 @@ class AdminManager {
         canvas.toBlob((blob) => {
             const editedFile = new File([blob], "edited_image.png", { type: "image/png" });
 
-            if (this.editingContext === 'add') {
-                this.selectedFile = editedFile;
-                const previewImage = document.getElementById('previewImage');
-                previewImage.src = URL.createObjectURL(this.selectedFile);
-                previewImage.style.display = 'block';
-                document.getElementById('dragDropArea').querySelector('p').style.display = 'none';
-            } else if (this.editingContext === 'edit') {
-                this.editImageFile = editedFile;
-                document.getElementById('editImagePreview').src = URL.createObjectURL(this.editImageFile);
-            }
+            // 편집된 이미지를 편집 모달에 설정
+            this.editSelectedFile = editedFile;
+            const editImagePreview = document.getElementById('editImagePreview');
+            editImagePreview.src = URL.createObjectURL(this.editSelectedFile);
+            editImagePreview.style.display = 'block';
+            document.getElementById('editDragDropArea').querySelector('p').style.display = 'none';
 
             this.closeImageEditor();
         }, 'image/png');
     }
     clearForm() {
-        document.getElementById('addForm').reset();
-        const previewImage = document.getElementById('previewImage');
+        // 이 메서드는 더 이상 사용되지 않음 (편집 모달로 통합됨)
+        // clearEditForm()을 대신 사용
+        this.clearEditForm();
+    }
+    // 새항목 추가 모달 열기
+    openAddModal() {
+        this.isEditMode = false;
+        this.currentEditingItem = null;
+        this.clearEditForm();
+        this.setEditFormPlaceholders();
+        document.getElementById('modalTitle').textContent = '새항목 추가';
+        document.getElementById('editModalDeleteBtn').style.display = 'none';
+        document.getElementById('editModal').style.display = 'flex';
+    }
+    
+    // 편집 폼 초기화
+    clearEditForm() {
+        document.getElementById('editKoreanName').value = '';
+        document.getElementById('editEnglishName').value = '';
+        document.getElementById('editOrganization').value = '';
+        document.getElementById('editRole').value = '';
+        document.getElementById('editPosition').value = '';
+        document.getElementById('editEmail').value = '';
+        
+        const previewImage = document.getElementById('editImagePreview');
         previewImage.style.display = 'none';
         previewImage.src = '';
-        document.getElementById('dragDropArea').querySelector('p').style.display = 'block';
-        this.selectedFile = null;
+        document.getElementById('editDragDropArea').querySelector('p').style.display = 'block';
+        this.editSelectedFile = null;
     }
+    
+    // 플레이스홀더 설정
+    setEditFormPlaceholders() {
+        document.getElementById('editKoreanName').placeholder = '한글 이름을 입력하세요';
+        document.getElementById('editEnglishName').placeholder = '영문 이름을 입력하세요 ex) HongGilDong';
+        document.getElementById('editOrganization').placeholder = '조직명을 입력하세요';
+        document.getElementById('editRole').placeholder = '직무를 입력하세요';
+        document.getElementById('editPosition').placeholder = '직위를 입력하세요';
+        document.getElementById('editEmail').placeholder = '이메일을 입력하세요';
+    }
+
     async addItem() {
-        const koreanName = document.getElementById('koreanName').value.trim();
-        const englishName = document.getElementById('englishName').value.trim();
-        const organization = document.getElementById('organization').value.trim();
-        const role = document.getElementById('role').value.trim();
-        const position = document.getElementById('position').value.trim();
-        const email = document.getElementById('email').value.trim();
-        if (!koreanName || !englishName || !this.selectedFile) {
+        const koreanName = document.getElementById('editKoreanName').value.trim();
+        const englishName = document.getElementById('editEnglishName').value.trim();
+        const organization = document.getElementById('editOrganization').value.trim();
+        const role = document.getElementById('editRole').value.trim();
+        const position = document.getElementById('editPosition').value.trim();
+        const email = document.getElementById('editEmail').value.trim();
+        if (!koreanName || !englishName || !this.editSelectedFile) {
             this.showMessage('모든 필드를 입력하고 이미지를 선택해주세요.', 'error');
             return;
         }
@@ -302,7 +382,7 @@ class AdminManager {
             formData.append('role', role);
             formData.append('position', position);
             formData.append('email', email);
-            formData.append('image', this.selectedFile);
+            formData.append('image', this.editSelectedFile);
             const response = await fetch('/api/people', {
                 method: 'POST',
                 body: formData
@@ -312,7 +392,8 @@ class AdminManager {
                 this.showMessage(result.message, 'success');
                 await this.loadPeople();
                 this.renderItems();
-                this.clearForm();
+                this.clearEditForm();
+                document.getElementById('editModal').style.display = 'none';
             } else {
                 const error = await response.json();
                 throw new Error(error.error || '서버 오류가 발생했습니다.');
@@ -387,55 +468,89 @@ class AdminManager {
     editItemByEnglishName(englishName) {
         const index = this.people.findIndex(p => p.englishName === englishName);
         if (index === -1) return;
+        
+        this.isEditMode = true;
+        this.currentEditingItem = this.people[index];
         this.editIndex = index;
+        
         const person = this.people[index];
-        document.getElementById('editImagePreview').src = person.imageUrl || `images/${person.imageFile || person.englishName + '.png'}?v=${Date.now()}`;
+        
+        // 이미지 설정
+        const editImagePreview = document.getElementById('editImagePreview');
+        const imageSrc = person.imageUrl || `images/${person.imageFile || person.englishName + '.png'}?v=${Date.now()}`;
+        editImagePreview.src = imageSrc;
+        editImagePreview.style.display = 'block';
+        document.getElementById('editDragDropArea').querySelector('p').style.display = 'none';
+        
+        // 기존 이미지를 File 객체로 변환하여 편집 가능하도록 설정
+        this.loadExistingImageAsFile(imageSrc);
+        
+        // 폼 데이터 설정
         document.getElementById('editKoreanName').value = person.koreanName;
         document.getElementById('editEnglishName').value = person.englishName;
         document.getElementById('editOrganization').value = person.organization || '';
         document.getElementById('editRole').value = person.role || '';
         document.getElementById('editPosition').value = person.position || '';
         document.getElementById('editEmail').value = person.email || '';
-        this.editImageFile = null;
-        document.getElementById('editModal').style.display = 'block';
+        
+        // 플레이스홀더 제거
+        document.getElementById('editKoreanName').placeholder = '';
+        document.getElementById('editEnglishName').placeholder = '';
+        document.getElementById('editOrganization').placeholder = '';
+        document.getElementById('editRole').placeholder = '';
+        document.getElementById('editPosition').placeholder = '';
+        document.getElementById('editEmail').placeholder = '';
+        
+        this.editSelectedFile = null;
+        document.getElementById('modalTitle').textContent = '항목 편집';
+        document.getElementById('editModalDeleteBtn').style.display = 'inline-block';
+        document.getElementById('editModal').style.display = 'flex';
     }
     closeEditModal() {
         document.getElementById('editModal').style.display = 'none';
         this.editIndex = null;
-        this.editImageFile = null;
+        this.editSelectedFile = null;
+        this.isEditMode = false;
+        this.currentEditingItem = null;
+        this.clearEditForm();
     }
-    handleEditImageSelect(event) {
-        const file = event.target.files[0];
-        if (file && file.type.startsWith('image/')) {
-            this.editingContext = 'edit';
-            this.processImageFile(file);
-        }
-    }
+    // handleEditImageSelect는 setupEditModalDragDrop에서 처리됨
     async saveEdit(event) {
         event.preventDefault();
-        if (this.editIndex === null) return;
-        const oldPerson = this.people[this.editIndex];
+        
         const koreanName = document.getElementById('editKoreanName').value.trim();
-        const newEnglishName = document.getElementById('editEnglishName').value.trim();
+        const englishName = document.getElementById('editEnglishName').value.trim();
         const organization = document.getElementById('editOrganization').value.trim();
         const role = document.getElementById('editRole').value.trim();
         const position = document.getElementById('editPosition').value.trim();
         const email = document.getElementById('editEmail').value.trim();
-        if (!koreanName || !newEnglishName) {
+        
+        if (!koreanName || !englishName) {
             this.showMessage('이름을 모두 입력하세요.', 'error');
             return;
         }
+        
+        // 새항목 추가 모드인 경우
+        if (!this.isEditMode) {
+            await this.addItem();
+            return;
+        }
+        
+        // 편집 모드인 경우
+        if (this.editIndex === null) return;
+        const oldPerson = this.people[this.editIndex];
+        
         try {
             this.showLoading(true);
             const formData = new FormData();
             formData.append('koreanName', koreanName);
-            formData.append('newEnglishName', newEnglishName);
+            formData.append('newEnglishName', englishName);
             formData.append('organization', organization);
             formData.append('role', role);
             formData.append('position', position);
             formData.append('email', email);
-            if (this.editImageFile) {
-                formData.append('image', this.editImageFile);
+            if (this.editSelectedFile) {
+                formData.append('image', this.editSelectedFile);
             }
             const response = await fetch(`/api/people/${oldPerson.englishName}`, {
                 method: 'PATCH',

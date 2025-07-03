@@ -26,55 +26,9 @@
             <div class="left-panel">
                 <div class="panel">
                     <h2>새 항목 추가</h2>
-                    <form id="addForm" class="add-form">
-                        <!-- 이미지 업로드 -->
-                        <div class="form-group">
-                            <label>이미지 업로드</label>
-                            <div id="dragDropArea" class="drag-drop-area">
-                                <p>이미지를 드래그하거나 클릭하여 선택하세요<br />400x300px 흑백 png 이미지</p>
-                                <img id="previewImage" style="display:none; max-width:100%; max-height:150px; border-radius:4px; cursor: pointer;" />
-                            </div>
-                            <input type="file" id="imageUpload" accept="image/*" style="display: none;">
-                        </div>
-
-                        <!-- 이름 입력 -->
-                        <div class="form-group">
-                            <label for="koreanName">한글 이름</label>
-                            <input type="text" id="koreanName" placeholder="한글 이름을 입력하세요" required>
-                        </div>
-
-                        <div class="form-group">
-                            <label for="englishName">영문 이름(이미지 파일명으로 사용)</label>
-                            <div class="input-with-button">
-                                <input type="text" id="englishName" placeholder="영문 이름을 입력하세요 ex) HongGilDong" required>
-                                <button type="button" id="generateEnglishBtn" class="btn btn-small">자동 생성</button>
-                            </div>
-                        </div>
-
-                        <!-- 조직, 직무, 직위, 이메일 입력 -->
-                        <div class="form-group">
-                            <label for="organization">조직</label>
-                            <input type="text" id="organization" placeholder="조직명을 입력하세요">
-                        </div>
-                        <div class="form-group">
-                            <label for="role">직무</label>
-                            <input type="text" id="role" placeholder="직무를 입력하세요">
-                        </div>
-                        <div class="form-group">
-                            <label for="position">직위</label>
-                            <input type="text" id="position" placeholder="직위를 입력하세요">
-                        </div>
-                        <div class="form-group">
-                            <label for="email">이메일</label>
-                            <input type="email" id="email" placeholder="이메일을 입력하세요">
-                        </div>
-
-                        <!-- 버튼들 -->
-                        <div class="form-actions">
-                            <button type="button" id="addBtn" class="btn btn-primary">추가</button>
-                            <button type="button" id="clearFormBtn" class="btn btn-secondary">초기화</button>
-                        </div>
-                    </form>
+                    <div class="add-form">
+                        <button type="button" id="addNewItemBtn" class="btn btn-primary btn-large">새항목 추가</button>
+                    </div>
                 </div>
 
                 <!-- 사용법 안내 -->
@@ -149,12 +103,15 @@
     <!-- 편집 모달 -->
     <div id="editModal" class="modal">
         <div class="modal-content">
-            <h3>항목 편집</h3>
+            <h3 id="modalTitle">항목 편집</h3>
             <form id="editForm">
                 <div class="form-group">
-                    <label>이미지</label>
+                    <label>이미지 업로드</label>
                     <div class="edit-image-container">
-                        <img id="editImagePreview" src="" alt="미리보기" style="max-width: 150px; max-height: 150px; border-radius: 4px; cursor: pointer; border: 1px solid #ddd;">
+                        <div id="editDragDropArea" class="drag-drop-area">
+                            <p>이미지를 드래그하거나 클릭하여 선택하세요<br />400x300px 흑백 png 이미지</p>
+                            <img id="editImagePreview" src="" alt="미리보기" style="display:none; max-width: 150px; max-height: 150px; border-radius: 4px; cursor: pointer; border: 1px solid #ddd;">
+                        </div>
                         <button type="button" id="changeImageBtn" class="btn btn-secondary">이미지 변경</button>
                     </div>
                     <input type="file" id="editImageUpload" accept="image/*" style="display: none;">
@@ -164,7 +121,7 @@
                     <input type="text" id="editKoreanName" required>
                 </div>
                 <div class="form-group">
-                    <label>영문 이름</label>
+                    <label>영문 이름(이미지 파일명으로 사용)</label>
                     <input type="text" id="editEnglishName" required>
                 </div>
                 <div class="form-group">
@@ -207,16 +164,16 @@
                     <div class="control-group">
                         <label for="brightness">밝기</label>
                         <input type="range" id="brightness" min="0" max="200" value="100">
-                    </div>
+                    </div
                     <div class="control-group">
                         <label for="contrast">대비</label>
                         <input type="range" id="contrast" min="0" max="200" value="100">
                     </div>
                 </div>
-            </div>
-            <div class="modal-actions">
-                <button id="editorSaveBtn" class="btn btn-primary">편집 완료</button>
-                <button id="editorCancelBtn" class="btn btn-secondary">취소</button>
+                <div class="modal-actions">
+                    <button id="editorSaveBtn" class="btn btn-primary">편집 완료</button>
+                    <button id="editorCancelBtn" class="btn btn-secondary">취소</button>
+                </div>
             </div>
         </div>
     </div>

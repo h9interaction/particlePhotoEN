@@ -121,6 +121,7 @@ body {
     border: 2px dashed #bdc3c7;
     border-radius: 8px;
     padding: 30px;
+    max-width: 200px;
     text-align: center;
     cursor: pointer;
     transition: all 0.3s;
@@ -186,6 +187,14 @@ body {
 .btn-small {
     padding: 6px 12px;
     font-size: 12px;
+}
+
+.btn-large {
+    padding: 15px 30px;
+    font-size: 16px;
+    font-weight: bold;
+    width: 100%;
+    margin-bottom: 20px;
 }
 
 .btn-success {
@@ -269,12 +278,13 @@ body {
     display: grid;
     grid-template-columns: repeat(4, 1fr); /* 기본값 4개 */
     gap: 15px;
-    max-height: calc(100vh - 300px);
+    max-height: auto;
     overflow-y: auto;
 }
 
 /* 항목 카드 */
 .item-card {
+    position: relative;
     background: white;
     border: 2px solid #e0e0e0;
     border-radius: 8px;
@@ -296,16 +306,49 @@ body {
 }
 
 .item-header {
+    position: relative;
+    z-index: 2;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 10px;
-    background: #f8f9fa;
-    border-bottom: 1px solid #e0e0e0;
+    padding: 0px;
+    background: rgba(255, 255, 255, 0);
+    /* border-bottom: 1px solid #e0e0e0; */
 }
 
 .item-checkbox {
-    margin-right: 8px;
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    z-index: 3;
+    width: 20px;
+    height: 20px;
+    appearance: none;
+    -webkit-appearance: none;
+    border: 2px solid #bbb;
+    border-radius: 50%;
+    background: #fff;
+    cursor: pointer;
+    transition: border-color 0.2s;
+    outline: none;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+    display: inline-block;
+    vertical-align: middle;
+}
+
+.item-checkbox:checked {
+    border-color: #3498db;
+    background: #3498db;
+}
+
+.item-checkbox:checked::after {
+    content: '';
+    display: block;
+    width: 10px;
+    height: 10px;
+    margin: 3px auto;
+    border-radius: 50%;
+    background: #fff;
 }
 
 .item-actions {
@@ -314,8 +357,9 @@ body {
 }
 
 .item-image {
+    position: static;
     width: 100%;
-    aspect-ratio: 1/1;
+    aspect-ratio: 4/3;
     object-fit: cover;
     display: block;
     height: auto;
@@ -348,8 +392,6 @@ body {
     line-height: 1;
     color: #aab4b5;
 }
-
-
 
 /* 로딩 오버레이 */
 .loading-overlay {
@@ -400,12 +442,14 @@ body {
 
 .modal-content {
     background-color: white;
-    margin: 15% auto;
+    margin: 5% auto;
     padding: 30px;
     border-radius: 8px;
     width: 90%;
-    max-width: 400px;
+    max-width: 500px;
+    max-height: 90vh;
     text-align: center;
+    overflow-y: auto;
 }
 
 .modal-content h3 {
