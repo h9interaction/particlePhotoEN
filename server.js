@@ -6,6 +6,9 @@ const multer = require('multer');
 const fs = require('fs').promises;
 const path = require('path');
 const cors = require('cors');
+const { parse } = require('csv-parse/sync');
+const yauzl = require('yauzl');
+const { promisify } = require('util');
 
 // Firebase 조건부 로드
 let firebase = null;
@@ -717,6 +720,672 @@ app.post('/api/migrate/people-to-firebase', async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+
+// CSV 파일 업로드를 위한 multer 설정
+const csvUpload = multer({
+    storage: multer.memoryStorage(), // 메모리 스토리지 사용
+    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB 제한
+    fileFilter: (req, file, cb) => {
+        const allowedTypes = ['text/csv', 'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'];
+        if (allowedTypes.includes(file.mimetype) || file.originalname.endsWith('.csv')) {
+            cb(null, true);
+        } else {
+            cb(new Error('CSV 또는 Excel 파일만 업로드 가능합니다.'), false);
+        }
+    }
+});
+
+// 벌크 업로드 API
+app.post('/api/people/bulk-upload', csvUpload.single('csvFile'), async (req, res) => {
+    try {
+        const file = req.file;
+        const { conflictMode = 'skip' } = req.body;
+
+        if (!file) {
+            return res.status(400).json({ error: '파일이 필요합니다.' });
+        }
+
+        // CSV 파싱
+        let csvData;
+        try {
+            // BOM 제거 및 CSV 파싱
+            let csvContent = file.buffer.toString('utf-8');
+            // UTF-8 BOM 제거
+            if (csvContent.charCodeAt(0) === 0xFEFF) {
+                csvContent = csvContent.slice(1);
+            }
+            
+            csvData = parse(csvContent, {
+                columns: true,
+                skip_empty_lines: true,
+                trim: true
+            });
+        } catch (parseError) {
+            return res.status(400).json({ error: 'CSV 파일 파싱에 실패했습니다: ' + parseError.message });
+        }
+
+        if (!csvData || csvData.length === 0) {
+            return res.status(400).json({ error: '데이터가 없습니다.' });
+        }
+
+        // 필수 컬럼 확인
+        const requiredColumns = ['한글이름', '영문이름'];
+        const firstRow = csvData[0];
+        const missingColumns = requiredColumns.filter(col => !(col in firstRow));
+        
+        if (missingColumns.length > 0) {
+            return res.status(400).json({ 
+                error: `필수 컬럼이 누락되었습니다: ${missingColumns.join(', ')}` 
+            });
+        }
+
+        const results = {
+            total: csvData.length,
+            success: 0,
+            failed: 0,
+            skipped: 0,
+            errors: []
+        };
+
+        // Firebase 또는 로컬 파일시스템에 따라 처리
+        if (firebase && firebase.db) {
+            // Firebase 처리
+            updateProgress('processing', '사용자 데이터 처리 중...', 30, {
+                totalEntries: csvData.length,
+                processedEntries: 0
+            });
+            
+            for (let i = 0; i < csvData.length; i++) {
+                // 진행 상황 업데이트 (30% ~ 70% 범위에서)
+                const currentProgress = 30 + Math.floor((i / csvData.length) * 40);
+                updateProgress('processing', `사용자 ${i + 1}/${csvData.length} 처리 중...`, currentProgress, {
+                    totalEntries: csvData.length,
+                    processedEntries: i,
+                    currentUser: csvData[i]['영문이름'] || csvData[i]['한글이름'] || 'Unknown'
+                });
+                
+                const row = csvData[i];
+                try {
+                    const personData = {
+                        koreanName: row['한글이름'] || '',
+                        englishName: row['영문이름'] || '',
+                        organization: row['조직'] || '',
+                        role: row['직무'] || '',
+                        position: row['직위'] || '',
+                        email: row['이메일'] || '',
+                        imageUrl: ''
+                    };
+
+                    // 영문 이름 유효성 검사
+                    if (!personData.englishName) {
+                        results.failed++;
+                        results.errors.push(`행 ${i + 2}: 영문이름이 필요합니다.`);
+                        continue;
+                    }
+
+                    // 중복 확인
+                    const existingDoc = await firebase.db.collection('people').doc(personData.englishName).get();
+                    
+                    if (existingDoc.exists && conflictMode === 'skip') {
+                        results.skipped++;
+                        continue;
+                    }
+
+                    // Firestore에 저장
+                    await firebase.db.collection('people').doc(personData.englishName).set(personData);
+                    results.success++;
+                } catch (error) {
+                    results.failed++;
+                    results.errors.push(`행 ${i + 2}: ${error.message}`);
+                }
+            }
+
+            // 레거시 파일 동기화
+            await syncLegacyFilesFromFirestore();
+        } else {
+            // 로컬 파일시스템 처리
+            let people = [];
+            try {
+                const peopleContent = await fs.readFile('./images/people.json', 'utf8');
+                people = JSON.parse(peopleContent);
+            } catch (error) {
+                // 파일이 없으면 빈 배열로 시작
+            }
+
+            for (let i = 0; i < csvData.length; i++) {
+                const row = csvData[i];
+                try {
+                    const personData = {
+                        koreanName: row['한글이름'] || '',
+                        englishName: row['영문이름'] || '',
+                        organization: row['조직'] || '',
+                        role: row['직무'] || '',
+                        position: row['직위'] || '',
+                        email: row['이메일'] || '',
+                        imageFile: `${row['영문이름']}.png`
+                    };
+
+                    // 영문 이름 유효성 검사
+                    if (!personData.englishName) {
+                        results.failed++;
+                        results.errors.push(`행 ${i + 2}: 영문이름이 필요합니다.`);
+                        continue;
+                    }
+
+                    // 중복 확인
+                    const existingIndex = people.findIndex(p => p.englishName === personData.englishName);
+                    
+                    if (existingIndex !== -1 && conflictMode === 'skip') {
+                        results.skipped++;
+                        continue;
+                    }
+
+                    if (existingIndex !== -1) {
+                        // 덮어쓰기
+                        people[existingIndex] = { ...people[existingIndex], ...personData };
+                    } else {
+                        // 새로 추가
+                        people.push(personData);
+                    }
+                    
+                    results.success++;
+                } catch (error) {
+                    results.failed++;
+                    results.errors.push(`행 ${i + 2}: ${error.message}`);
+                }
+            }
+
+            // people.json 파일 저장
+            await fs.writeFile('./images/people.json', JSON.stringify(people, null, 2), 'utf8');
+        }
+
+        res.json({
+            success: true,
+            message: '벌크 업로드가 완료되었습니다.',
+            results
+        });
+
+    } catch (error) {
+        console.error('벌크 업로드 에러:', error);
+        res.status(500).json({ error: '벌크 업로드 중 오류가 발생했습니다: ' + error.message });
+    }
+});
+
+// ZIP 파일을 위한 multer 설정
+const zipUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 50 * 1024 * 1024 }, // 50MB 제한
+    fileFilter: (req, file, cb) => {
+        if (file.mimetype === 'application/zip' || file.originalname.endsWith('.zip')) {
+            cb(null, true);
+        } else {
+            cb(new Error('ZIP 파일만 업로드 가능합니다.'), false);
+        }
+    }
+});
+
+// 진행 상황을 저장할 객체
+const uploadProgress = new Map();
+
+// SSE를 위한 진행 상황 스트림 API
+app.get('/api/upload-progress/:sessionId', (req, res) => {
+    const sessionId = req.params.sessionId;
+    
+    res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Cache-Control'
+    });
+
+    // 즉시 연결 확인 메시지 전송
+    res.write(`data: ${JSON.stringify({ type: 'connected', sessionId })}\n\n`);
+
+    // 진행 상황 업데이트를 확인하는 인터벌
+    const interval = setInterval(() => {
+        const progress = uploadProgress.get(sessionId);
+        if (progress) {
+            res.write(`data: ${JSON.stringify(progress)}\n\n`);
+            
+            // 완료되면 세션 정리
+            if (progress.type === 'completed' || progress.type === 'error') {
+                uploadProgress.delete(sessionId);
+                clearInterval(interval);
+                res.end();
+            }
+        }
+    }, 100);
+
+    // 클라이언트 연결 종료 처리
+    req.on('close', () => {
+        clearInterval(interval);
+        uploadProgress.delete(sessionId);
+    });
+});
+
+// ZIP 파일 벌크 업로드 API
+app.post('/api/people/bulk-upload-zip', zipUpload.single('zipFile'), async (req, res) => {
+    try {
+        const file = req.file;
+        const { conflictMode = 'skip', sessionId } = req.body;
+
+        if (!file) {
+            return res.status(400).json({ error: 'ZIP 파일이 필요합니다.' });
+        }
+
+        // 진행 상황 업데이트 함수
+        const updateProgress = (type, message, progress = 0, details = {}) => {
+            if (sessionId) {
+                uploadProgress.set(sessionId, {
+                    type,
+                    message,
+                    progress,
+                    timestamp: Date.now(),
+                    ...details
+                });
+            }
+        };
+
+        // ZIP 파일 처리
+        updateProgress('processing', 'ZIP 파일 분석 중...', 10);
+        console.log('ZIP 파일 처리 시작...');
+        const zipData = await processZipFile(file.buffer);
+        console.log(`ZIP 파일 분석 완료 - CSV: ${zipData.csv ? '있음' : '없음'}, 이미지: ${Object.keys(zipData.images).length}개`);
+        console.log('발견된 이미지 파일들:', Object.keys(zipData.images));
+        
+        updateProgress('processing', 'CSV 데이터 파싱 중...', 20, {
+            totalImages: Object.keys(zipData.images).length
+        });
+        
+        if (!zipData.csv) {
+            return res.status(400).json({ error: 'ZIP 파일에 CSV 파일이 없습니다.' });
+        }
+
+        // CSV 데이터 파싱
+        let csvData;
+        try {
+            // BOM 제거
+            let csvContent = zipData.csv;
+            if (csvContent.charCodeAt(0) === 0xFEFF) {
+                csvContent = csvContent.slice(1);
+            }
+            
+            csvData = parse(csvContent, {
+                columns: true,
+                skip_empty_lines: true,
+                trim: true
+            });
+        } catch (parseError) {
+            return res.status(400).json({ error: 'CSV 파일 파싱에 실패했습니다: ' + parseError.message });
+        }
+
+        if (!csvData || csvData.length === 0) {
+            return res.status(400).json({ error: '데이터가 없습니다.' });
+        }
+
+        // 필수 컬럼 확인
+        const requiredColumns = ['한글이름', '영문이름'];
+        const firstRow = csvData[0];
+        const missingColumns = requiredColumns.filter(col => !(col in firstRow));
+        
+        if (missingColumns.length > 0) {
+            return res.status(400).json({ 
+                error: `필수 컬럼이 누락되었습니다: ${missingColumns.join(', ')}` 
+            });
+        }
+
+        const results = {
+            total: csvData.length,
+            success: 0,
+            failed: 0,
+            skipped: 0,
+            errors: []
+        };
+
+        // Firebase 또는 로컬 파일시스템에 따라 처리
+        if (firebase && firebase.db) {
+            // Firebase 처리
+            updateProgress('processing', '사용자 데이터 처리 중...', 30, {
+                totalEntries: csvData.length,
+                processedEntries: 0
+            });
+            
+            for (let i = 0; i < csvData.length; i++) {
+                // 진행 상황 업데이트 (30% ~ 70% 범위에서)
+                const currentProgress = 30 + Math.floor((i / csvData.length) * 40);
+                updateProgress('processing', `사용자 ${i + 1}/${csvData.length} 처리 중...`, currentProgress, {
+                    totalEntries: csvData.length,
+                    processedEntries: i,
+                    currentUser: csvData[i]['영문이름'] || csvData[i]['한글이름'] || 'Unknown'
+                });
+                
+                const row = csvData[i];
+                try {
+                    const personData = {
+                        koreanName: row['한글이름'] || '',
+                        englishName: row['영문이름'] || '',
+                        organization: row['조직'] || '',
+                        role: row['직무'] || '',
+                        position: row['직위'] || '',
+                        email: row['이메일'] || '',
+                        imageUrl: ''
+                    };
+
+                    if (!personData.englishName) {
+                        results.failed++;
+                        results.errors.push(`행 ${i + 2}: 영문이름이 필요합니다.`);
+                        continue;
+                    }
+
+                    // 중복 확인
+                    const existingDoc = await firebase.db.collection('people').doc(personData.englishName).get();
+                    
+                    if (existingDoc.exists && conflictMode === 'skip') {
+                        results.skipped++;
+                        continue;
+                    }
+
+                    // 이미지 처리
+                    const imageKey = `${personData.englishName}.png`;
+                    const imageKeyJpg = `${personData.englishName}.jpg`;
+                    const imageKeyJpeg = `${personData.englishName}.jpeg`;
+                    
+                    let imageBuffer = null;
+                    let imageExt = null;
+                    
+                    if (zipData.images[imageKey]) {
+                        imageBuffer = zipData.images[imageKey];
+                        imageExt = 'png';
+                    } else if (zipData.images[imageKeyJpg]) {
+                        imageBuffer = zipData.images[imageKeyJpg];
+                        imageExt = 'jpg';
+                    } else if (zipData.images[imageKeyJpeg]) {
+                        imageBuffer = zipData.images[imageKeyJpeg];
+                        imageExt = 'jpeg';
+                    }
+                    
+                    if (imageBuffer && imageExt) {
+                        try {
+                            updateProgress('uploading', `이미지 업로드 중: ${personData.englishName}.${imageExt}`, currentProgress + 5, {
+                                totalEntries: csvData.length,
+                                processedEntries: i,
+                                currentUser: personData.englishName,
+                                currentAction: 'uploading_image'
+                            });
+                            
+                            console.log(`Firebase에 이미지 업로드 시작: ${personData.englishName}.${imageExt}`);
+                            const imageUrl = await uploadImageToFirebase(imageBuffer, `${personData.englishName}.${imageExt}`);
+                            personData.imageUrl = imageUrl;
+                            console.log(`이미지 업로드 성공: ${personData.englishName} -> ${imageUrl.substring(0, 100)}...`);
+                        } catch (imageError) {
+                            console.error(`이미지 업로드 실패: ${personData.englishName} -`, imageError.message);
+                            results.errors.push(`행 ${i + 2}: 이미지 업로드 실패 - ${imageError.message}`);
+                        }
+                    } else {
+                        console.log(`이미지를 찾을 수 없음: ${personData.englishName} (찾은 이미지: ${Object.keys(zipData.images).join(', ')})`);
+                    }
+
+                    // Firestore에 저장
+                    await firebase.db.collection('people').doc(personData.englishName).set(personData);
+                    results.success++;
+                } catch (error) {
+                    results.failed++;
+                    results.errors.push(`행 ${i + 2}: ${error.message}`);
+                }
+            }
+
+            // 레거시 파일 동기화
+            await syncLegacyFilesFromFirestore();
+        } else {
+            // 로컬 파일시스템 처리
+            let people = [];
+            try {
+                const peopleContent = await fs.readFile('./images/people.json', 'utf8');
+                people = JSON.parse(peopleContent);
+            } catch (error) {
+                // 파일이 없으면 빈 배열로 시작
+            }
+
+            for (let i = 0; i < csvData.length; i++) {
+                const row = csvData[i];
+                try {
+                    const personData = {
+                        koreanName: row['한글이름'] || '',
+                        englishName: row['영문이름'] || '',
+                        organization: row['조직'] || '',
+                        role: row['직무'] || '',
+                        position: row['직위'] || '',
+                        email: row['이메일'] || '',
+                        imageFile: `${row['영문이름']}.png`
+                    };
+
+                    if (!personData.englishName) {
+                        results.failed++;
+                        results.errors.push(`행 ${i + 2}: 영문이름이 필요합니다.`);
+                        continue;
+                    }
+
+                    // 중복 확인
+                    const existingIndex = people.findIndex(p => p.englishName === personData.englishName);
+                    
+                    if (existingIndex !== -1 && conflictMode === 'skip') {
+                        results.skipped++;
+                        continue;
+                    }
+
+                    // 이미지 처리
+                    const imageKey = `${personData.englishName}.png`;
+                    const imageKeyJpg = `${personData.englishName}.jpg`;
+                    const imageKeyJpeg = `${personData.englishName}.jpeg`;
+                    
+                    let imageBuffer = null;
+                    let imageExt = null;
+                    
+                    if (zipData.images[imageKey]) {
+                        imageBuffer = zipData.images[imageKey];
+                        imageExt = 'png';
+                    } else if (zipData.images[imageKeyJpg]) {
+                        imageBuffer = zipData.images[imageKeyJpg];
+                        imageExt = 'jpg';
+                    } else if (zipData.images[imageKeyJpeg]) {
+                        imageBuffer = zipData.images[imageKeyJpeg];
+                        imageExt = 'jpeg';
+                    }
+                    
+                    if (imageBuffer && imageExt) {
+                        try {
+                            // 로컬 이미지 저장
+                            const imagePath = `./images/${personData.englishName}.${imageExt}`;
+                            await fs.writeFile(imagePath, imageBuffer);
+                            personData.imageFile = `${personData.englishName}.${imageExt}`;
+                            console.log(`이미지 저장 성공: ${imagePath}`);
+                        } catch (imageError) {
+                            console.error(`이미지 저장 실패: ${personData.englishName} -`, imageError.message);
+                            results.errors.push(`행 ${i + 2}: 이미지 저장 실패 - ${imageError.message}`);
+                        }
+                    } else {
+                        console.log(`이미지를 찾을 수 없음: ${personData.englishName} (찾은 이미지: ${Object.keys(zipData.images).join(', ')})`);
+                    }
+
+                    if (existingIndex !== -1) {
+                        // 덮어쓰기
+                        people[existingIndex] = { ...people[existingIndex], ...personData };
+                    } else {
+                        // 새로 추가
+                        people.push(personData);
+                    }
+                    
+                    results.success++;
+                } catch (error) {
+                    results.failed++;
+                    results.errors.push(`행 ${i + 2}: ${error.message}`);
+                }
+            }
+
+            // people.json 파일 저장
+            await fs.writeFile('./images/people.json', JSON.stringify(people, null, 2), 'utf8');
+        }
+
+        // 완료 상태 업데이트
+        updateProgress('completed', 'ZIP 파일 업로드가 완료되었습니다.', 100, {
+            totalEntries: results.total,
+            successCount: results.success,
+            failedCount: results.failed,
+            skippedCount: results.skipped
+        });
+
+        res.json({
+            success: true,
+            message: 'ZIP 파일 업로드가 완료되었습니다.',
+            results
+        });
+
+    } catch (error) {
+        console.error('ZIP 업로드 에러:', error);
+        
+        // 오류 상태 업데이트
+        updateProgress('error', 'ZIP 업로드 중 오류가 발생했습니다.', 0, {
+            errorMessage: error.message
+        });
+        
+        res.status(500).json({ error: 'ZIP 업로드 중 오류가 발생했습니다: ' + error.message });
+    }
+});
+
+// ZIP 파일 처리 함수
+async function processZipFile(zipBuffer) {
+    return new Promise((resolve, reject) => {
+        const zipData = {
+            csv: null,
+            images: {}
+        };
+
+        yauzl.fromBuffer(zipBuffer, { lazyEntries: true }, (err, zipfile) => {
+            if (err) {
+                reject(new Error('ZIP 파일을 읽을 수 없습니다: ' + err.message));
+                return;
+            }
+
+            let processedEntries = 0;
+            let allEntries = [];
+
+            // 먼저 모든 엔트리를 수집
+            zipfile.on('entry', (entry) => {
+                console.log(`ZIP 엔트리 발견: ${entry.fileName} (디렉토리: ${/\/$/.test(entry.fileName)})`);
+                allEntries.push(entry);
+                zipfile.readEntry(); // 다음 엔트리 읽기
+            });
+
+            zipfile.on('end', () => {
+                console.log(`총 ${allEntries.length}개의 엔트리 발견`);
+                
+                if (allEntries.length === 0) {
+                    resolve(zipData);
+                    return;
+                }
+
+                // 모든 엔트리를 순차적으로 처리
+                let currentIndex = 0;
+                
+                const processNextEntry = () => {
+                    if (currentIndex >= allEntries.length) {
+                        console.log('모든 ZIP 엔트리 처리 완료');
+                        resolve(zipData);
+                        return;
+                    }
+
+                    const entry = allEntries[currentIndex];
+                    currentIndex++;
+                    
+                    if (/\/$/.test(entry.fileName)) {
+                        // 디렉토리는 건너뛰기
+                        console.log(`디렉토리 건너뜀: ${entry.fileName}`);
+                        processNextEntry();
+                        return;
+                    }
+
+                    console.log(`파일 처리 시작: ${entry.fileName}`);
+                    zipfile.openReadStream(entry, (err, readStream) => {
+                        if (err) {
+                            reject(new Error(`파일을 읽을 수 없습니다: ${entry.fileName}`));
+                            return;
+                        }
+
+                        const chunks = [];
+                        readStream.on('data', (chunk) => {
+                            chunks.push(chunk);
+                        });
+
+                        readStream.on('end', () => {
+                            const buffer = Buffer.concat(chunks);
+                            const fileName = path.basename(entry.fileName);
+                            console.log(`파일 처리 완료: ${fileName} (전체 경로: ${entry.fileName}, 크기: ${buffer.length})`);
+
+                            // CSV 파일 처리
+                            if (fileName.toLowerCase().endsWith('.csv')) {
+                                zipData.csv = buffer.toString('utf-8');
+                                console.log(`CSV 파일 로드: ${fileName}`);
+                            }
+                            // 이미지 파일 처리 (경로에 관계없이 파일명만 사용)
+                            else if (/\.(png|jpg|jpeg)$/i.test(fileName)) {
+                                zipData.images[fileName] = buffer;
+                                console.log(`이미지 파일 발견: ${fileName} (${entry.fileName}) - ${buffer.length} bytes`);
+                            } else {
+                                console.log(`알 수 없는 파일 형식: ${fileName}`);
+                            }
+
+                            // 다음 엔트리 처리
+                            processNextEntry();
+                        });
+
+                        readStream.on('error', (err) => {
+                            reject(new Error(`파일 읽기 오류: ${entry.fileName} - ${err.message}`));
+                        });
+                    });
+                };
+
+                // 첫 번째 엔트리부터 처리 시작
+                processNextEntry();
+            });
+
+            zipfile.on('error', (err) => {
+                reject(new Error('ZIP 파일 처리 오류: ' + err.message));
+            });
+
+            // 첫 번째 엔트리 읽기 시작
+            zipfile.readEntry();
+        });
+    });
+}
+
+// Firebase Storage에 이미지 업로드 함수
+async function uploadImageToFirebase(imageBuffer, fileName) {
+    if (!firebase || !firebase.bucket) {
+        throw new Error('Firebase Storage가 설정되지 않았습니다.');
+    }
+
+    try {
+        const bucket = firebase.bucket;
+        const file = bucket.file(`images/${fileName}`);
+        
+        await file.save(imageBuffer, {
+            metadata: {
+                contentType: fileName.endsWith('.png') ? 'image/png' : 'image/jpeg'
+            }
+        });
+
+        // 서명된 URL 생성 (1년 유효)
+        const [url] = await file.getSignedUrl({
+            action: 'read',
+            expires: '12-31-2030'
+        });
+
+        return url;
+    } catch (error) {
+        throw new Error(`이미지 업로드 실패: ${fileName} - ${error.message}`);
+    }
+}
 
 // 에러 핸들링 미들웨어
 app.use((error, req, res, next) => {

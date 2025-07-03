@@ -17,6 +17,9 @@
             <h1>Particle Photo 관리자</h1>
             <div class="header-actions">
                 <button id="refreshBtn" class="btn btn-secondary">새로고침</button>
+                <button id="excelDownloadBtn" class="btn btn-success">📊 엑셀 다운로드</button>
+                <button id="excelUploadBtn" class="btn btn-primary">📤 엑셀 업로드</button>
+                <input type="file" id="excelFileInput" accept=".csv,.xlsx,.xls,.zip" style="display: none;">
             </div>
         </header>
 
@@ -25,9 +28,9 @@
             <!-- 왼쪽 패널: 추가 폼 -->
             <div class="left-panel">
                 <div class="panel">
-                    <h2>새 항목 추가</h2>
+                    <h2>인원 추가</h2>
                     <div class="add-form">
-                        <button type="button" id="addNewItemBtn" class="btn btn-primary btn-large">새항목 추가</button>
+                        <button type="button" id="addNewItemBtn" class="btn btn-primary btn-large">인원 추가</button>
                     </div>
                 </div>
 
@@ -38,12 +41,12 @@
                         <h3>📸 이미지 추가</h3>
                         <ol>
                             <li>이미지를 드래그하거나 클릭하여 선택</li>
-                            <li>한글 이름 입력 (영문 이름 자동 생성)</li>
-                            <li>영문 이름 확인/수정</li>
+                            <li>한글 이름 입력</li>
+                            <li>영문 이름 띄어쓰기 없이 ex)HongGilDong</li>
                             <li>추가 버튼 클릭</li>
                         </ol>
                         
-                        <h3>🗑️ 항목 삭제</h3>
+                        <h3>🗑️ 인원 삭제</h3>
                         <ol>
                             <li>삭제할 항목 체크박스 선택</li>
                             <li>삭제 버튼 클릭</li>
@@ -60,14 +63,14 @@
             <div class="right-panel">
                 <div class="panel">
                     <div class="panel-header">
-                        <h2>현재 항목 목록 <span id="itemCount" class="item-count"></span></h2>
+                        <h2>현재 인원 목록 <span id="itemCount" class="item-count"></span></h2>
                         <div class="panel-actions">
                             <input type="text" id="searchInput" placeholder="검색..." class="search-input">
                             <select id="gridCountSelect" class="grid-count-select">
-                                <option value="4">4개씩</option>
-                                <option value="6">6개씩</option>
-                                <option value="8">8개씩</option>
-                                <option value="10">10개씩</option>
+                                <option value="4">4명씩</option>
+                                <option value="6">6명씩</option>
+                                <option value="8">8명씩</option>
+                                <option value="10">10명씩</option>
                             </select>
                             <button id="selectAllBtn" class="btn btn-small btn-secondary">전체 선택</button>
                             <button id="deleteSelectedBtn" class="btn btn-small btn-danger">선택 삭제</button>
@@ -77,6 +80,95 @@
                     <div id="itemsContainer" class="items-container">
                         <!-- 항목들이 여기에 동적으로 추가됩니다 -->
                     </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 엑셀 업로드 모달 -->
+    <div id="excelUploadModal" class="modal">
+        <div class="modal-content">
+            <h3>엑셀 파일 업로드</h3>
+            <div id="uploadStep1" class="upload-step">
+                <h4>업로드 방식을 선택해주세요</h4>
+                
+                <!-- 업로드 방식 선택 -->
+                <div class="upload-method-selection">
+                    <div class="upload-method-option" data-method="csv">
+                        <div class="method-icon">📄</div>
+                        <h5>CSV/Excel 파일만</h5>
+                        <p>사람 정보만 업로드 (이미지 별도 업로드)</p>
+                        <ul>
+                            <li><strong>지원 형식:</strong> .csv, .xlsx, .xls</li>
+                            <li><strong>필수 컬럼:</strong> 한글이름, 영문이름</li>
+                            <li><strong>선택 컬럼:</strong> 조직, 직무, 직위, 이메일</li>
+                        </ul>
+                        <button class="btn btn-primary method-select-btn">CSV 파일 선택</button>
+                    </div>
+                    
+                    <div class="upload-method-option" data-method="zip">
+                        <div class="method-icon">📦</div>
+                        <h5>ZIP 파일 (추천)</h5>
+                        <p>CSV + 이미지를 한 번에 업로드</p>
+                        <ul>
+                            <li><strong>구성:</strong> CSV파일 + 이미지폴더</li>
+                            <li><strong>이미지명:</strong> 영문이름.png/jpg</li>
+                            <li><strong>예시:</strong> data.csv + images/JohnDoe.png</li>
+                        </ul>
+                        <button class="btn btn-success method-select-btn">ZIP 파일 선택</button>
+                    </div>
+                </div>
+                
+                <div class="modal-actions">
+                    <button id="uploadCancelBtn" class="btn btn-secondary">취소</button>
+                </div>
+            </div>
+            <div id="uploadStep2" class="upload-step" style="display: none;">
+                <h4>파일 미리보기</h4>
+                <div id="previewContainer"></div>
+                <div class="upload-options">
+                    <label>
+                        <input type="radio" name="conflictMode" value="skip" checked>
+                        중복 데이터 건너뛰기
+                    </label>
+                    <label>
+                        <input type="radio" name="conflictMode" value="overwrite">
+                        중복 데이터 덮어쓰기
+                    </label>
+                </div>
+                <div class="modal-actions">
+                    <button id="startUploadBtn" class="btn btn-success">업로드 시작</button>
+                    <button id="uploadBackBtn" class="btn btn-secondary">뒤로</button>
+                </div>
+            </div>
+            <div id="uploadStep3" class="upload-step" style="display: none;">
+                <h4 id="uploadProgressTitle">업로드 진행 중...</h4>
+                <div class="progress-container" id="progressContainer">
+                    <div class="progress-bar">
+                        <div id="progressFill" class="progress-fill"></div>
+                    </div>
+                    <div id="progressText">0 / 0</div>
+                </div>
+                <div id="uploadResults" style="display: none;">
+                    <h4 id="uploadResultTitle">업로드 완료</h4>
+                    <div id="resultSummary"></div>
+                </div>
+                <div id="uploadError" style="display: none;">
+                    <h4 style="color: #e74c3c;">업로드 오류</h4>
+                    <div id="errorMessage" style="color: #e74c3c; margin: 15px 0; padding: 15px; background: #fdf2f2; border-radius: 4px; border-left: 4px solid #e74c3c;">
+                    </div>
+                    <div style="margin: 15px 0; padding: 10px; background: #f8f9fa; border-radius: 4px;">
+                        <strong>해결 방법:</strong>
+                        <ul style="margin: 10px 0; padding-left: 20px;">
+                            <li>CSV 파일의 첫 번째 행에 <strong>한글이름, 영문이름</strong> 컬럼이 포함되어 있는지 확인해주세요.</li>
+                            <li>파일이 UTF-8 인코딩으로 저장되어 있는지 확인해주세요.</li>
+                            <li>Excel에서 CSV로 저장할 때 'CSV UTF-8(쉼표로 분리)' 형식을 선택해주세요.</li>
+                        </ul>
+                    </div>
+                </div>
+                <div class="modal-actions">
+                    <button id="uploadCloseBtn" class="btn btn-primary" style="display: none;">완료</button>
+                    <button id="uploadErrorCloseBtn" class="btn btn-secondary" style="display: none;">닫기</button>
                 </div>
             </div>
         </div>

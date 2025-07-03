@@ -1,35 +1,59 @@
 import { initializePeopleData, shuffleArray } from './peopleDataLoader.js';
-import { imageDataArray, loadImages } from './imageLoader.js';
+import { imageDataCache, initializeImageLoader, loadBatch, cleanupBatch } from './imageLoader.js';
 import Particle from './Particle.js';
 
 const canvasIds = ['imageCanvas1', 'imageCanvas2', 'imageCanvas3', 'imageCanvas4'];
-let currentIndex = 0;
-const maxParticles = 4320; // 최대 파티클 개수 설정
+const canvasContexts = {};
 const particlePools = {};
-const stepPixel = 22;
 let shuffledPeople = [];
+
+// --- State Management ---
+let nextPersonIndex = 0; 
+const animationQueue = []; // The queue of canvasIds ready for the next animation
+
+// --- Constants ---
+const maxParticles = 3600;
+const stepPixel = 26;
+const TICK_INTERVAL = 4000; // The conductor's steady beat for starting animations
+const EXPLOSION_START_DELAY = 2000;
+const EXPLOSION_PARTICLE_DELAY = 4000;
+const IMAGE_BATCH_SIZE = 4; 
+
+// --- Initialization ---
+
+window.onload = () => {
+    canvasIds.forEach(id => {
+        const canvas = document.getElementById(id);
+        if (canvas) {
+            canvasContexts[id] = canvas.getContext('2d', { 
+                willReadFrequently: true,
+                alpha: false,
+                desynchronized: true
+            });
+        }
+    });
+    dataLoad();
+};
 
 async function dataLoad() {
     try {
-        // Firestore people 데이터 초기화 및 peopleData 획득
         const peopleData = await initializePeopleData();
         if (!peopleData || !Array.isArray(peopleData) || peopleData.length === 0) {
-            throw new Error('peopleData가 비어있음');
+            throw new Error('peopleData is empty');
         }
-        // peopleData 객체 배열 자체를 셔플
         shuffledPeople = shuffleArray([...peopleData]);
-        console.log("People 데이터 셔플 완료, 이미지 로딩 시작...");
-        await loadImages(shuffledPeople, stepPixel);
-        console.log("이미지 로딩 완료!");
-        canvasIds.forEach(id => createParticles(id));
-        startAnimationLoop();
+        console.log("People data shuffled. Initializing image loader...");
+
+        await initializeImageLoader(shuffledPeople, stepPixel, IMAGE_BATCH_SIZE);
+
+        canvasIds.forEach(id => {
+            createParticles(id);
+            animationQueue.push(id); // Prime the queue
+        });
+
+        startConductor();
     } catch (error) {
-        console.error("데이터 로드 실패:", error);
-        // 에러 발생 시 기본 데이터로 fallback
-        shuffledPeople = [{ englishName: "Test", koreanName: "테스트", imageUrl: "" }];
-        await loadImages(shuffledPeople, stepPixel);
-        canvasIds.forEach(id => createParticles(id));
-        startAnimationLoop();
+        console.error("Fatal error during initial data load:", error);
     }
 }
 
@@ -40,155 +64,151 @@ function createParticles(canvasId) {
     }
 }
 
-window.onload = () => {
-    dataLoad();
-};
+// --- Conductor (The new core logic) ---
 
-function startAnimationLoop() {
-    canvasIds.forEach((canvasId, index) => {
-        setTimeout(() => {
-            init(canvasId, index);
-        }, 4000 * index);  // 각 캔버스는 4초 간격으로 시작
-    });
+function startConductor() {
+    console.log("--- Conductor starting ---");
+    // Start the first animation immediately.
+    conductorTick();
+
+    // Set the interval to start subsequent animations, creating the desired sequential start.
+    setInterval(conductorTick, TICK_INTERVAL);
 }
 
-const canvasAnimationState = {
-    imageCanvas1: { animationFrameId: null, exploding: false },
-    imageCanvas2: { animationFrameId: null, exploding: false },
-    imageCanvas3: { animationFrameId: null, exploding: false },
-    imageCanvas4: { animationFrameId: null, exploding: false }
-};
+function conductorTick() {
+    if (animationQueue.length === 0) {
+        // console.log("Queue is empty, waiting for a canvas to finish.");
+        return; // Nothing to do
+    }
 
-function init(canvasId, index) {
+    const canvasId = animationQueue.shift(); // Get the next canvas from the front of the queue
+    const personIndex = nextPersonIndex++;
+
+    console.log(`Conductor tick: Starting ${canvasId} with person index ${personIndex}`);
+
+    // --- Double Buffering Logic ---
+    // This is the perfect place to manage the buffer, as it's tied to the assignment of a new index.
+    const batchNumber = Math.floor(personIndex / IMAGE_BATCH_SIZE);
+    if (personIndex % IMAGE_BATCH_SIZE === 0 && batchNumber > 0) {
+        const batchToLoadIndex = (batchNumber + 1) * IMAGE_BATCH_SIZE;
+        const batchToCleanupIndex = (batchNumber - 1) * IMAGE_BATCH_SIZE;
+
+        console.log(`Triggering buffer update at person index ${personIndex}`);
+        console.log(`  - Loading batch @ ${batchToLoadIndex}`);
+        console.log(`  - Cleaning up batch @ ${batchToCleanupIndex}`);
+
+        // Perform in the background
+        cleanupBatch(batchToCleanupIndex, IMAGE_BATCH_SIZE);
+        loadBatch(batchToLoadIndex, IMAGE_BATCH_SIZE).catch(console.error);
+    }
+    
+    // Handle infinite looping of people data
+    const loopedPersonIndex = personIndex % shuffledPeople.length;
+
+    init(canvasId, loopedPersonIndex);
+}
+
+function onAnimationComplete(canvasId) {
+    console.log(`${canvasId} finished. Returning to the back of the queue.`);
+    animationQueue.push(canvasId); // Return the canvas to the end of the queue
+}
+
+// --- Animation Functions ---
+
+const animationFrameIds = {};
+
+function init(canvasId, personIndex) {
+    const person = shuffledPeople[personIndex];
+    const pixels = imageDataCache.get(personIndex);
+
+    if (!pixels) {
+        console.error(`Image data for index ${personIndex} not in cache! Will retry...`);
+        // If data isn't ready, put the canvas back at the front of the queue to be picked up on the next tick.
+        animationQueue.unshift(canvasId);
+        nextPersonIndex--; // Decrement the counter since this attempt failed
+        return;
+    }
+
     const text = document.getElementById(canvasId + '_text');
-    console.log('index: ', index);
-
     const canvas = document.getElementById(canvasId);
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const ctx = canvasContexts[canvasId];
 
-    // 안전한 배열 접근
-    if (!imageDataArray || imageDataArray.length === 0) {
-        console.error('이미지 데이터가 없습니다.');
-        return;
-    }
-
-    const currentImageData = imageDataArray[currentIndex % imageDataArray.length];
-    if (!currentImageData || !currentImageData.pixels) {
-        console.error(`인덱스 ${currentIndex}의 이미지 데이터가 유효하지 않습니다.`);
-        return;
-    }
-
-    const imageData = currentImageData.pixels;
-    canvas.width = window.innerWidth / 4;  // 화면의 1/4 크기로 설정
+    canvas.width = window.innerWidth / 4;
     canvas.height = window.innerHeight;
     canvas.style.display = 'block';
     cancelAnimation(canvasId);
-    function addSpaceBeforeUppercase(text) {
-        return text.replace(/([a-z])([A-Z])/g, '$1 $2');
-    }
 
-    // 셔플된 people 배열에서 현재 인덱스의 이름/한글명 사용
-    const person = shuffledPeople[currentIndex % shuffledPeople.length];
-    const originalText = person ? person.englishName : '';
-    const modifiedText = addSpaceBeforeUppercase(originalText);
-    console.log(modifiedText);
-    text.innerText = modifiedText.toUpperCase();
+    const originalText = person.englishName.replace(/([a-z])([A-Z])/g, '$1 $2');
+    text.innerText = originalText.toUpperCase();
     text.classList.remove("hide");
-    currentIndex++;
-    if (currentIndex >= shuffledPeople.length) {
-        currentIndex = 0; // 마지막에 도달하면 처음부터 다시 시작
-    }
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    let particles = activateParticles(particlePools[canvasId], imageData, canvas.width, canvas.height);
+    let particles = activateParticles(particlePools[canvasId], pixels, canvas.width, canvas.height);
 
     function animate(timestamp) {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         let allParticlesAtTarget = true;
 
-        particles.forEach(particle => {
-            particle.update(timestamp);
-            particle.draw(ctx);
-            if (!particle.isAtTarget()) {
-                allParticlesAtTarget = false;
-            }
-        });
+        for (let i = 0; i < particles.length; i++) {
+            const p = particles[i];
+            p.update(timestamp);
+            p.draw(ctx);
+            if (!p.isAtTarget()) allParticlesAtTarget = false;
+        }
 
         if (!allParticlesAtTarget) {
-            requestAnimationFrame(animate);
+            animationFrameIds[canvasId] = requestAnimationFrame(animate);
         } else {
-            console.log(`애니메이션이 ${canvasId}에서 완료되었습니다.`);
-            setTimeout(() => {
-                init(canvasId, index);  // 같은 캔버스에서 다음 이미지로 넘어가기
-            }, 8000);  // 모든 캔버스가 한 번씩 활성화 된 후 다음 순환 시작
-            setTimeout(() => {
-                console.log(`폭발 시작 ${canvasId}`);
-                startExplosionAnimation(canvasId);
-            }, 2000);
+            setTimeout(() => startExplosionAnimation(canvasId, particles, ctx), EXPLOSION_START_DELAY);
         }
     }
+    animationFrameIds[canvasId] = requestAnimationFrame(animate);
+}
 
-    requestAnimationFrame(animate);
+function startExplosionAnimation(canvasId, particles, ctx) {
+    document.getElementById(canvasId + '_text').classList.add('hide');
 
-    function startExplosionAnimation(canvasId) {
-        const canvas = document.getElementById(canvasId);
-        const ctx = canvas.getContext('2d');
-        const text = document.getElementById(canvasId + '_text');
-        text.classList.add('hide');
+    for (let i = 0; i < particles.length; i++) {
+        setTimeout(() => particles[i].explode(), Math.random() * EXPLOSION_PARTICLE_DELAY);
+    }
 
-        // 현재 폭발 상태를 true로 설정
-        canvasAnimationState[canvasId].exploding = true;
+    function explodeAnimation() {
+        ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+        let allParticlesOutside = true;
 
-        particles.forEach((particle, index) => {
-            const delay = Math.random() * 4000; // 0ms ~ 1000ms (1초) 사이의 랜덤한 지연시간
-            setTimeout(() => {
-                particle.explode(); // 수정된 explode() 함수 사용
-            }, delay);
-        });
-
-        function explodeAnimation() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            let allParticlesOutside = true;
-
-            particles.forEach(particle => {
-                particle.update(performance.now());
-                if (particle.pos.x > 0 && particle.pos.x < canvas.width && particle.pos.y > 0 && particle.pos.y < canvas.height) {
-                    allParticlesOutside = false;
-                }
-                particle.draw(ctx);
-            });
-
-            if (!allParticlesOutside) {
-                canvasAnimationState[canvasId].animationFrameId = requestAnimationFrame(explodeAnimation);
-            } else {
-                console.log(`${canvasId} 폭발 애니메이션이 완료되었습니다.`);
-                canvasAnimationState[canvasId].exploding = false;
-                // 다음 이미지로 넘어가거나 종료 처리
+        for (let i = 0; i < particles.length; i++) {
+            const p = particles[i];
+            p.update(performance.now());
+            if (p.pos.x > 0 && p.pos.x < ctx.canvas.width && p.pos.y > 0 && p.pos.y < ctx.canvas.height) {
+                allParticlesOutside = false;
             }
+            p.draw(ctx);
         }
-        explodeAnimation();
+
+        if (!allParticlesOutside) {
+            animationFrameIds[canvasId] = requestAnimationFrame(explodeAnimation);
+        } else {
+            onAnimationComplete(canvasId);
+        }
     }
+    animationFrameIds[canvasId] = requestAnimationFrame(explodeAnimation);
 }
 
 function activateParticles(pool, imageData, canvasWidth, canvasHeight) {
     let activeParticles = [];
-    imageData.forEach((pixel, index) => {
-        if (index < pool.length) {
-            let particle = pool[index];
-            particle.reset(pixel.x, pixel.y, pixel.color, canvasWidth, canvasHeight, stepPixel);
-            activeParticles.push(particle);
-        }
-    });
+    const numParticles = Math.min(imageData.length, pool.length);
+    for (let i = 0; i < numParticles; i++) {
+        let particle = pool[i];
+        const pixel = imageData[i];
+        particle.reset(pixel.x, pixel.y, pixel.color, canvasWidth, canvasHeight, stepPixel);
+        activeParticles.push(particle);
+    }
     return activeParticles;
 }
 
 function cancelAnimation(canvasId) {
-    if (canvasAnimationState[canvasId].animationFrameId !== null) {
-        cancelAnimationFrame(canvasAnimationState[canvasId].animationFrameId);
-        console.log(`${canvasId} 애니메이션이 취소되었습니다.`);
-        canvasAnimationState[canvasId].exploding = false;
-        canvasAnimationState[canvasId].animationFrameId = null; // 초기화
+    if (animationFrameIds[canvasId]) {
+        cancelAnimationFrame(animationFrameIds[canvasId]);
+        animationFrameIds[canvasId] = null;
     }
 }
-
