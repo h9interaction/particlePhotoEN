@@ -438,18 +438,42 @@ body {
     width: 100%;
     height: 100%;
     background-color: rgba(0,0,0,0.5);
+    backdrop-filter: blur(5px);
+    animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(30px) scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
 }
 
 .modal-content {
     background-color: white;
-    margin: 5% auto;
+    margin: auto;
     padding: 30px;
     border-radius: 8px;
     width: 90%;
     max-width: 500px;
-    max-height: 90vh;
+    /* max-height: 90vh; */
     text-align: center;
     overflow-y: auto;
+    animation: slideUp 0.3s ease-out;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
 }
 
 .modal-content h3 {
@@ -467,6 +491,220 @@ body {
     gap: 10px;
     justify-content: center;
     margin-top: 20px;
+}
+
+/* 편집 모달 스타일 */
+.edit-modal-content {
+    max-width: 900px;
+    width: 95%;
+    text-align: left;
+    box-shadow: 0 25px 80px rgba(0, 0, 0, 0.4);
+    border-radius: 16px;
+    overflow: hidden;
+    background: white;
+}
+
+.edit-modal-body {
+    display: flex;
+    gap: 30px;
+    margin-bottom: 30px;
+}
+
+.edit-modal-left {
+    flex: 1;
+    min-width: 300px;
+}
+
+.edit-modal-right {
+    flex: 1;
+    min-width: 300px;
+}
+
+.form-row {
+    display: flex;
+    gap: 15px;
+    margin-bottom: 15px;
+}
+
+.form-row .form-group {
+    flex: 1;
+}
+
+/* 드래그 앤 드롭 영역 개선 */
+.edit-modal-left .drag-drop-area {
+    border: 2px dashed #bdc3c7;
+    border-radius: 12px;
+    padding: 40px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+    position: relative;
+    min-height: 250px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.edit-modal-left .drag-drop-area:hover {
+    border-color: #3498db;
+    background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 16px rgba(52, 152, 219, 0.2);
+}
+
+.edit-modal-left .drag-drop-area.drag-over {
+    border-color: #3498db;
+    background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+    transform: scale(1.02);
+}
+
+.drag-drop-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+}
+
+.drag-drop-icon {
+    font-size: 48px;
+    margin-bottom: 15px;
+    opacity: 0.7;
+}
+
+.drag-drop-content p {
+    color: #7f8c8d;
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+#editImagePreview {
+    max-width: 100%;
+    max-height: 200px;
+    border-radius: 8px;
+    cursor: pointer;
+    border: 2px solid #e0e0e0;
+    object-fit: cover;
+    transition: transform 0.3s ease;
+}
+
+#editImagePreview:hover {
+    transform: scale(1.05);
+    border-color: #3498db;
+}
+
+.edit-image-container {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.edit-image-container .btn {
+    align-self: center;
+}
+
+/* 필수 필드 표시 및 현대적인 스타일링 */
+.edit-modal-right .form-group label.required::after {
+    content: ' *';
+    color: #e74c3c;
+    font-weight: bold;
+}
+
+.edit-modal-right .form-group input {
+    padding: 12px 16px;
+    border: 2px solid #e9ecef;
+    border-radius: 8px;
+    font-size: 14px;
+    transition: all 0.3s ease;
+    background-color: #fff;
+}
+
+.edit-modal-right .form-group input:focus {
+    outline: none;
+    border-color: #3498db;
+    box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
+    transform: translateY(-1px);
+}
+
+.edit-modal-right .form-group input::placeholder {
+    color: #adb5bd;
+    font-style: italic;
+}
+
+.edit-modal-right .form-group input:invalid:not(:placeholder-shown) {
+    border-color: #e74c3c;
+    background-color: #fdf2f2;
+}
+
+.edit-modal-right .form-group input:valid:not(:placeholder-shown) {
+    border-color: #27ae60;
+    background-color: #f8fff8;
+}
+
+.edit-modal-right .form-group label {
+    font-weight: 600;
+    color: #2c3e50;
+    font-size: 14px;
+    margin-bottom: 8px;
+    display: block;
+}
+
+/* 모달 제목 스타일링 */
+.edit-modal-content h3 {
+    text-align: center;
+    color: #2c3e50;
+    font-size: 24px;
+    font-weight: 700;
+    margin-bottom: 25px;
+    padding-bottom: 15px;
+    border-bottom: 2px solid #e9ecef;
+}
+
+/* 버튼 개선 */
+.modal-actions .btn {
+    padding: 12px 24px;
+    font-size: 14px;
+    font-weight: 600;
+    border-radius: 8px;
+    transition: all 0.3s ease;
+    border: none;
+    cursor: pointer;
+    min-width: 100px;
+}
+
+.modal-actions .btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.modal-actions .btn-primary {
+    background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
+    color: white;
+}
+
+.modal-actions .btn-primary:hover {
+    background: linear-gradient(135deg, #2980b9 0%, #1f5f8b 100%);
+}
+
+.modal-actions .btn-danger {
+    background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+    color: white;
+}
+
+.modal-actions .btn-danger:hover {
+    background: linear-gradient(135deg, #c0392b 0%, #922b21 100%);
+}
+
+.modal-actions .btn-secondary {
+    background: linear-gradient(135deg, #95a5a6 0%, #7f8c8d 100%);
+    color: white;
+}
+
+.modal-actions .btn-secondary:hover {
+    background: linear-gradient(135deg, #7f8c8d 0%, #566165 100%);
 }
 
 /* 반응형 디자인 */
@@ -500,6 +738,39 @@ body {
     
     .form-actions {
         flex-direction: column;
+    }
+    
+    /* 편집 모달 반응형 */
+    .edit-modal-content {
+        width: 95%;
+        max-width: none;
+        margin: 2% auto;
+        padding: 20px;
+    }
+    
+    .edit-modal-body {
+        flex-direction: column;
+        gap: 20px;
+    }
+    
+    .edit-modal-left,
+    .edit-modal-right {
+        min-width: auto;
+    }
+    
+    .edit-modal-left .drag-drop-area {
+        min-height: 200px;
+        padding: 30px 15px;
+    }
+    
+    .form-row {
+        flex-direction: column;
+        gap: 10px;
+    }
+    
+    .modal-actions {
+        flex-direction: column;
+        gap: 10px;
     }
 }
 

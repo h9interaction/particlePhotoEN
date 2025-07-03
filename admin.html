@@ -102,43 +102,64 @@
 
     <!-- 편집 모달 -->
     <div id="editModal" class="modal">
-        <div class="modal-content">
+        <div class="modal-content edit-modal-content">
             <h3 id="modalTitle">항목 편집</h3>
             <form id="editForm">
-                <div class="form-group">
-                    <label>이미지 업로드</label>
-                    <div class="edit-image-container">
-                        <div id="editDragDropArea" class="drag-drop-area">
-                            <p>이미지를 드래그하거나 클릭하여 선택하세요<br />400x300px 흑백 png 이미지</p>
-                            <img id="editImagePreview" src="" alt="미리보기" style="display:none; max-width: 150px; max-height: 150px; border-radius: 4px; cursor: pointer; border: 1px solid #ddd;">
+                <div class="edit-modal-body">
+                    <!-- 좌측: 이미지 업로드 영역 -->
+                    <div class="edit-modal-left">
+                        <div class="form-group">
+                            <label>이미지 업로드</label>
+                            <div class="edit-image-container">
+                                <div id="editDragDropArea" class="drag-drop-area">
+                                    <div class="drag-drop-content">
+                                        <div class="drag-drop-icon">📁</div>
+                                        <p>이미지를 드래그하거나 클릭하여 선택하세요</p>
+                                        <img id="editImagePreview" src="" alt="미리보기" style="display:none;">
+                                    </div>
+                                </div>
+                                <button type="button" id="changeImageBtn" class="btn btn-secondary">이미지 변경</button>
+                            </div>
+                            <input type="file" id="editImageUpload" accept="image/*" style="display: none;">
                         </div>
-                        <button type="button" id="changeImageBtn" class="btn btn-secondary">이미지 변경</button>
                     </div>
-                    <input type="file" id="editImageUpload" accept="image/*" style="display: none;">
+                    
+                    <!-- 우측: 정보 입력 영역 -->
+                    <div class="edit-modal-right">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="required">한글 이름</label>
+                                <input type="text" id="editKoreanName" required placeholder="한글 이름을 입력하세요">
+                            </div>
+                            <div class="form-group">
+                                <label class="required">영문 이름(공백없이)</label>
+                                <input type="text" id="editEnglishName" required placeholder="영문 이름을 입력하세요 ex) HongGilDong">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>조직</label>
+                                <input type="text" id="editOrganization" placeholder="조직명을 입력하세요">
+                            </div>
+                            <div class="form-group">
+                                <label>직무</label>
+                                <input type="text" id="editRole" placeholder="직무를 입력하세요">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>직위</label>
+                                <input type="text" id="editPosition" placeholder="직위를 입력하세요">
+                            </div>
+                            <div class="form-group">
+                                <label>이메일</label>
+                                <input type="email" id="editEmail" placeholder="이메일을 입력하세요">
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                <div class="form-group">
-                    <label>한글 이름</label>
-                    <input type="text" id="editKoreanName" required>
-                </div>
-                <div class="form-group">
-                    <label>영문 이름(이미지 파일명으로 사용)</label>
-                    <input type="text" id="editEnglishName" required>
-                </div>
-                <div class="form-group">
-                    <label>조직</label>
-                    <input type="text" id="editOrganization">
-                </div>
-                <div class="form-group">
-                    <label>직무</label>
-                    <input type="text" id="editRole">
-                </div>
-                <div class="form-group">
-                    <label>직위</label>
-                    <input type="text" id="editPosition">
-                </div>
-                <div class="form-group">
-                    <label>이메일</label>
-                    <input type="email" id="editEmail">
+                <div>
+                    <h3></h3>
                 </div>
                 <div class="modal-actions">
                     <button type="submit" class="btn btn-primary">저장</button>

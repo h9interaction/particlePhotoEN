@@ -123,7 +123,8 @@ class AdminManager {
             const editImagePreview = document.getElementById('editImagePreview');
             editImagePreview.src = e.target.result;
             editImagePreview.style.display = 'block';
-            document.getElementById('editDragDropArea').querySelector('p').style.display = 'none';
+            document.querySelector('.drag-drop-content p').style.display = 'none';
+            document.querySelector('.drag-drop-icon').style.display = 'none';
         };
         reader.readAsDataURL(file);
     }
@@ -311,7 +312,8 @@ class AdminManager {
             const editImagePreview = document.getElementById('editImagePreview');
             editImagePreview.src = URL.createObjectURL(this.editSelectedFile);
             editImagePreview.style.display = 'block';
-            document.getElementById('editDragDropArea').querySelector('p').style.display = 'none';
+            document.querySelector('.drag-drop-content p').style.display = 'none';
+            document.querySelector('.drag-drop-icon').style.display = 'none';
 
             this.closeImageEditor();
         }, 'image/png');
@@ -344,7 +346,8 @@ class AdminManager {
         const previewImage = document.getElementById('editImagePreview');
         previewImage.style.display = 'none';
         previewImage.src = '';
-        document.getElementById('editDragDropArea').querySelector('p').style.display = 'block';
+        document.querySelector('.drag-drop-content p').style.display = 'block';
+        document.querySelector('.drag-drop-icon').style.display = 'block';
         this.editSelectedFile = null;
     }
     
@@ -480,7 +483,8 @@ class AdminManager {
         const imageSrc = person.imageUrl || `images/${person.imageFile || person.englishName + '.png'}?v=${Date.now()}`;
         editImagePreview.src = imageSrc;
         editImagePreview.style.display = 'block';
-        document.getElementById('editDragDropArea').querySelector('p').style.display = 'none';
+        document.querySelector('.drag-drop-content p').style.display = 'none';
+        document.querySelector('.drag-drop-icon').style.display = 'none';
         
         // 기존 이미지를 File 객체로 변환하여 편집 가능하도록 설정
         this.loadExistingImageAsFile(imageSrc);
