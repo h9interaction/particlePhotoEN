@@ -212,12 +212,24 @@ class AdminManager {
     applyImageFilters() {
         const brightness = document.getElementById('brightness').value;
         const contrast = document.getElementById('contrast').value;
-        const imageElement = this.cropper.getImageData();
-        const cropperCanvas = this.cropper.getCropBoxData();
+        const filterValue = `grayscale(100%) brightness(${brightness}%) contrast(${contrast}%)`;
+        
+        // 전체 이미지에 필터 적용
         const image = document.querySelector('.cropper-canvas img');
-
         if (image) {
-            image.style.filter = `grayscale(100%) brightness(${brightness}%) contrast(${contrast}%)`;
+            image.style.filter = filterValue;
+        }
+        
+        // 크롭박스 내부 이미지에도 필터 적용
+        const cropBoxImage = document.querySelector('.cropper-crop-box img');
+        if (cropBoxImage) {
+            cropBoxImage.style.filter = filterValue;
+        }
+        
+        // Cropper 컨테이너 전체에 필터 적용
+        const cropperContainer = document.querySelector('.cropper-container');
+        if (cropperContainer) {
+            cropperContainer.style.filter = filterValue;
         }
     }
 
