@@ -1,10 +1,14 @@
 import { initializePeopleData, shuffleArray } from './peopleDataLoader.js';
 import { imageDataCache, initializeImageLoader, loadBatch, cleanupBatch } from './imageLoader.js';
 import Particle from './Particle.js';
+import OptimizedParticlePool from './OptimizedParticlePool.js';
+import animationManager from './AnimationManager.js';
+import performanceMonitor from './PerformanceMonitor.js';
+import particleCalculatorWorkerManager from './ParticleCalculatorWorkerManager.js';
 
 const canvasIds = ['imageCanvas1', 'imageCanvas2', 'imageCanvas3', 'imageCanvas4'];
 const canvasContexts = {};
-const particlePools = {};
+const particlePools = {}; // 이제 OptimizedParticlePool 인스턴스들을 저장
 let shuffledPeople = [];
 
 // --- State Management ---
@@ -12,11 +16,11 @@ let nextPersonIndex = 0;
 const animationQueue = []; // The queue of canvasIds ready for the next animation
 
 // --- Constants ---
-const maxParticles = 3600;
-const stepPixel = 26;
+const maxParticles = 8200;
+const stepPixel = 16;
 const TICK_INTERVAL = 4000; // The conductor's steady beat for starting animations
-const EXPLOSION_START_DELAY = 2000;
-const EXPLOSION_PARTICLE_DELAY = 4000;
+const EXPLOSION_START_DELAY = 3000;
+const EXPLOSION_PARTICLE_DELAY = 3000;
 const IMAGE_BATCH_SIZE = 4; 
 
 // --- Initialization ---
@@ -25,11 +29,8 @@ window.onload = () => {
     canvasIds.forEach(id => {
         const canvas = document.getElementById(id);
         if (canvas) {
-            canvasContexts[id] = canvas.getContext('2d', { 
-                willReadFrequently: true,
-                alpha: false,
-                desynchronized: true
-            });
+            // AnimationManager를 사용하여 최적화된 컨텍스트 획득
+            canvasContexts[id] = animationManager.getOptimizedContext(id);
         }
     });
     dataLoad();
@@ -58,10 +59,8 @@ async function dataLoad() {
 }
 
 function createParticles(canvasId) {
-    particlePools[canvasId] = [];
-    for (let i = 0; i < maxParticles; i++) {
-        particlePools[canvasId].push(new Particle(0, 0, { r: 120, g: 120, b: 120 }, 0, 0, stepPixel));
-    }
+    // OptimizedParticlePool을 사용하여 메모리 효율성 개선
+    particlePools[canvasId] = new OptimizedParticlePool(maxParticles);
 }
 
 // --- Conductor (The new core logic) ---
@@ -71,8 +70,19 @@ function startConductor() {
     // Start the first animation immediately.
     conductorTick();
 
-    // Set the interval to start subsequent animations, creating the desired sequential start.
-    setInterval(conductorTick, TICK_INTERVAL);
+    // AnimationManager를 사용하여 메모리 누수 방지
+    const intervalId = setInterval(conductorTick, TICK_INTERVAL);
+    
+    // 성능 모니터링 시작
+    performanceMonitor.start();
+    
+    // 페이지 언로드 시 정리
+    window.addEventListener('beforeunload', () => {
+        clearInterval(intervalId);
+        animationManager.cleanup();
+        performanceMonitor.stop();
+        particleCalculatorWorkerManager.cleanup();
+    });
 }
 
 function conductorTick() {
@@ -116,18 +126,40 @@ function onAnimationComplete(canvasId) {
 // --- Animation Functions ---
 
 const animationFrameIds = {};
+const canvasRetryCounters = {}; // 캔버스별 재시도 카운터
 
 function init(canvasId, personIndex) {
     const person = shuffledPeople[personIndex];
+    
+    // 디버깅을 위한 로그
+    console.log(`Trying to load person ${personIndex}, cache size: ${imageDataCache.size}`);
+    
     const pixels = imageDataCache.get(personIndex);
 
     if (!pixels) {
         console.error(`Image data for index ${personIndex} not in cache! Will retry...`);
+        
+        // 캐시 상태 확인
+        console.log('Available cache keys:', Array.from(imageDataCache.keys()));
+        
+        // 무한 루프 방지를 위한 최대 재시도 횟수 제한
+        if (!canvasRetryCounters[canvasId]) canvasRetryCounters[canvasId] = 0;
+        canvasRetryCounters[canvasId]++;
+        
+        if (canvasRetryCounters[canvasId] > 10) {
+            console.error(`Too many retries for ${canvasId}, skipping to next person`);
+            canvasRetryCounters[canvasId] = 0;
+            return; // 다음 틱에서 새로운 person index로 시도
+        }
+        
         // If data isn't ready, put the canvas back at the front of the queue to be picked up on the next tick.
         animationQueue.unshift(canvasId);
         nextPersonIndex--; // Decrement the counter since this attempt failed
         return;
     }
+    
+    // 성공 시 재시도 카운터 리셋
+    canvasRetryCounters[canvasId] = 0;
 
     const text = document.getElementById(canvasId + '_text');
     const canvas = document.getElementById(canvasId);
@@ -143,33 +175,60 @@ function init(canvasId, personIndex) {
     text.classList.remove("hide");
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    let particles = activateParticles(particlePools[canvasId], pixels, canvas.width, canvas.height);
+    let particles = particlePools[canvasId].activateParticles(pixels, canvas.width, canvas.height, stepPixel);
 
-    function animate(timestamp) {
+    async function animate(timestamp) {
+        const frameStartTime = performance.now();
+        
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         let allParticlesAtTarget = true;
 
+        // 파티클 업데이트 시간 측정
+        const updateStartTime = performance.now();
+        
+        // 전역 애니메이션 상태 업데이트
+        particlePools[canvasId].updateGlobalState(timestamp);
+        
+        // Web Worker를 통한 파티클 계산 (폴백 지원)
+        try {
+            await particleCalculatorWorkerManager.updateParticles(particles, timestamp);
+        } catch (error) {
+            // 폴백: 메인 스레드에서 직접 계산
+            for (let i = 0; i < particles.length; i++) {
+                particles[i].update(timestamp);
+            }
+        }
+        
+        // 렌더링은 메인 스레드에서 수행
         for (let i = 0; i < particles.length; i++) {
             const p = particles[i];
-            p.update(timestamp);
             p.draw(ctx);
             if (!p.isAtTarget()) allParticlesAtTarget = false;
         }
+        
+        // 성능 모니터링
+        const updateTime = performance.now() - updateStartTime;
+        performanceMonitor.recordParticleUpdate(updateTime, particles.length);
+        performanceMonitor.recordFrame(frameStartTime);
 
         if (!allParticlesAtTarget) {
-            animationFrameIds[canvasId] = requestAnimationFrame(animate);
+            animationFrameIds[canvasId] = animationManager.requestAnimationFrame(animate);
         } else {
-            setTimeout(() => startExplosionAnimation(canvasId, particles, ctx), EXPLOSION_START_DELAY);
+            console.log(`애니메이션이 ${canvasId}에서 완료되었습니다.`);
+            animationManager.setTimeout(() => {
+                console.log(`폭발 시작 ${canvasId}`);
+                startExplosionAnimation(canvasId, particles, ctx);
+            }, EXPLOSION_START_DELAY);
         }
     }
-    animationFrameIds[canvasId] = requestAnimationFrame(animate);
+    animationFrameIds[canvasId] = animationManager.requestAnimationFrame(animate);
 }
 
 function startExplosionAnimation(canvasId, particles, ctx) {
     document.getElementById(canvasId + '_text').classList.add('hide');
 
     for (let i = 0; i < particles.length; i++) {
-        setTimeout(() => particles[i].explode(), Math.random() * EXPLOSION_PARTICLE_DELAY);
+        animationManager.setTimeout(() => particles[i].explode(), Math.random() * EXPLOSION_PARTICLE_DELAY);
     }
 
     function explodeAnimation() {
@@ -186,29 +245,58 @@ function startExplosionAnimation(canvasId, particles, ctx) {
         }
 
         if (!allParticlesOutside) {
-            animationFrameIds[canvasId] = requestAnimationFrame(explodeAnimation);
+            animationFrameIds[canvasId] = animationManager.requestAnimationFrame(explodeAnimation);
         } else {
+            console.log(`${canvasId} 폭발 애니메이션이 완료되었습니다.`);
             onAnimationComplete(canvasId);
         }
     }
-    animationFrameIds[canvasId] = requestAnimationFrame(explodeAnimation);
+    animationFrameIds[canvasId] = animationManager.requestAnimationFrame(explodeAnimation);
 }
 
-function activateParticles(pool, imageData, canvasWidth, canvasHeight) {
-    let activeParticles = [];
-    const numParticles = Math.min(imageData.length, pool.length);
-    for (let i = 0; i < numParticles; i++) {
-        let particle = pool[i];
-        const pixel = imageData[i];
-        particle.reset(pixel.x, pixel.y, pixel.color, canvasWidth, canvasHeight, stepPixel);
-        activeParticles.push(particle);
-    }
-    return activeParticles;
-}
+// activateParticles 함수는 OptimizedParticlePool.activateParticles()로 대체됨
 
 function cancelAnimation(canvasId) {
     if (animationFrameIds[canvasId]) {
-        cancelAnimationFrame(animationFrameIds[canvasId]);
+        animationManager.cancelAnimationFrame(animationFrameIds[canvasId]);
         animationFrameIds[canvasId] = null;
     }
+}
+
+// === 개발자 도구용 전역 함수들 ===
+// 브라우저 콘솔에서 성능 정보 확인 가능
+
+window.getPerformanceReport = () => {
+    return performanceMonitor.generateReport();
+};
+
+window.getRealtimeStats = () => {
+    return performanceMonitor.getRealTimeStats();
+};
+
+window.getAnimationManagerInfo = () => {
+    return animationManager.getResourceInfo();
+};
+
+window.getImageWorkerStatus = () => {
+    return import('./ImageWorkerManager.js').then(module => 
+        module.default.getStatus()
+    );
+};
+
+window.getParticleWorkerStatus = () => {
+    return particleCalculatorWorkerManager.getStatus();
+};
+
+// 성능 정보를 주기적으로 콘솔에 출력 (개발 모드에서만)
+if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    setInterval(() => {
+        const stats = window.getRealtimeStats();
+        console.log('🎯 Real-time Performance:', {
+            FPS: stats.currentFPS.toFixed(1),
+            Memory: `${stats.memoryUsed}MB`,
+            Frames: stats.frameCount,
+            Runtime: `${(stats.runtime / 1000).toFixed(1)}s`
+        });
+    }, 10000); // 10초마다 출력
 }

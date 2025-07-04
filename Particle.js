@@ -89,6 +89,18 @@ class Particle {
         this.needsUpdate = true;
         this.lastUpdateTime = 0;
         
+        // 물리 속성 (폭발 시 설정)
+        this.mass = 1.0; // 질량 (사이즈에 따라 결정)
+        this.gravityFactor = 1.0; // 중력 계수
+        this.airResistance = 0.98; // 공기 저항 계수
+        this.initialY = 0; // 초기 Y 위치 저장용
+        
+        // 2단계 애니메이션 관리
+        this.phase = 'falling'; // 'falling' | 'sizing'
+        this.positionComplete = false; // 위치 이동 완료 여부
+        this.sizingStartTime = 0; // 사이즈 조정 시작 시간
+        this.maxSize = 0; // 최대 사이즈 저장
+        
         this.reset(x, y, color, canvasWidth, canvasHeight, stepPixel);
     }
 
@@ -98,9 +110,7 @@ class Particle {
         this.target.y = y;
         
         // 색상 설정 (흰색으로 고정)
-        this.color.r = 255;
-        this.color.g = 255;
-        this.color.b = 255;
+        this.color = { r: 255, g: 255, b: 255 };
         
         // 밝기 계산 및 크기 설정
         this.brightness = (color.r + color.g + color.b) / 3;
@@ -111,10 +121,16 @@ class Particle {
         this.velocity.x = 0;
         this.velocity.y = 0;
         
-        // 시작 위치 설정 (객체 재사용)
-        const startPos = getRandomPos(this.target, tempPos);
-        this.pos.x = startPos.x;
-        this.pos.y = startPos.y;
+        // 시작 위치 설정 (상단에서 떨어지는 모래 효과)
+        this.pos.x = x + (Math.random() - 0.5) * 200; // 더 넓은 범위에서 시작
+        this.initialY = -400 - (Math.random() * 600); // 훨씬 높은 곳에서 시작
+        this.pos.y = this.initialY; // 화면 상단 위에서 시작
+        
+        // 드라마틱한 효과를 위한 추가 속성
+        this.initialX = this.pos.x; // 초기 X 위치 저장
+        this.swayAmount = (Math.random() - 0.5) * 3; // 떨어지며 흔들리는 정도
+        this.rotationSpeed = (Math.random() - 0.5) * 0.3; // 회전 속도
+        this.currentRotation = 0; // 현재 회전각
         
         // 상태 초기화
         this.atTarget = false;
@@ -122,36 +138,59 @@ class Particle {
         this.isActive = true;
         this.needsUpdate = true;
         
-        // 타이밍 설정
-        this.startTime = performance.now() + Math.random() * 1000;
-        this.duration = 4000 + Math.random() * 10000;
+        // 2단계 애니메이션 초기화
+        this.phase = 'falling';
+        this.positionComplete = false;
+        this.sizingStartTime = 0;
+        this.maxSize = Math.max(stepPixel * 0.2, this.targetSize * 0.2); // 최대 사이즈 설정
+        
+        // 타이밍 설정 (더 랜덤하고 넓은 간격)
+        const fallHeight = Math.abs(this.pos.y - y); // 떨어져야 하는 거리
+        const baseHeightDelay = (canvasHeight - y) * 1.5; // 하단부터 기본 지연
+        const randomDelay = Math.random() * 1500; // 큰 랜덤 지연 (0-1.5초)
+        const extraRandomDelay = Math.random() * Math.random() * 2000; // 이중 랜덤으로 더 불규칙하게
+        
+        this.startTime = performance.now() + baseHeightDelay + randomDelay + extraRandomDelay;
+        
+        // 듀레이션도 더 길고 랜덤하게
+        const baseDuration = 2500 + (fallHeight / canvasHeight) * 1500; // 기본 듀레이션 증가
+        const randomDurationVariation = (Math.random() - 0.5) * 1000; // ±0.5초 변화
+        this.duration = baseDuration + randomDurationVariation;
         this.lastUpdateTime = 0;
     }
 
     update(currentTime) {
-        // 이미 업데이트된 프레임이면 스킵
-        if (this.lastUpdateTime === currentTime) {
-            return;
-        }
-        this.lastUpdateTime = currentTime;
+        // 기존 스킵 로직 제거 - 매 프레임마다 업데이트 허용
         
         if (!this.exploding) {
             const timeElapsed = (currentTime - this.startTime) / this.duration;
+            const progress = Math.min(Math.max(timeElapsed, 0), 1);
             
-            if (timeElapsed < 0) {
-                return; // 아직 시작 시간이 되지 않음
+            // 낙엽이 쌓이는 듯한 부드러운 효과
+            if (progress > 0) {
+                // 낙엽처럼 부드러운 중력 가속
+                const gravityProgress = Math.pow(progress, 1.3); // 자연스러운 가속
+                const horizontalProgress = Math.pow(progress, 1.3);
+                
+                // 낙엽처럼 좌우로 부드럽게 흔들리는 효과
+                const leafSway = Math.sin(progress * Math.PI * 2 + this.swayAmount) * this.swayAmount * 15 * (1 - progress * 0.7);
+                
+                // 낙엽처럼 천천히 회전
+                this.currentRotation += this.rotationSpeed * 0.5;
+                
+                // 수평 위치 + 낙엽 흔들림 효과
+                const baseX = this.target.x * horizontalProgress + this.initialX * (1 - horizontalProgress);
+                this.pos.x = baseX + leafSway;
+                
+                // 수직 위치 - 낙엽처럼 부드럽게
+                const fallDistance = this.target.y - this.initialY;
+                this.pos.y = this.initialY + (fallDistance * gravityProgress);
+                
+                // 크기 변화 - 떨어지기 시작할 때부터 도착까지 점진적으로 증가
+                const sizeProgress = Math.pow(progress, 1.2); // 처음부터 부드럽게 증가
+                
+                this.size = this.maxSize + (this.targetSize - this.maxSize) * sizeProgress;
             }
-            
-            const progress = easeInOutQuart(Math.min(timeElapsed, 1));
-            
-            // 인라인 계산으로 성능 최적화
-            const growthFactor = 2.5;
-            const speed = Math.pow(progress, growthFactor);
-            const invSpeed = 1 - speed;
-            
-            this.pos.x = this.target.x * speed + this.pos.x * invSpeed;
-            this.pos.y = this.target.y * speed + this.pos.y * invSpeed;
-            this.size = this.targetSize * speed;
             
             if (timeElapsed >= 1) {
                 this.pos.x = this.target.x;
@@ -161,12 +200,12 @@ class Particle {
                 this.needsUpdate = false;
             }
         } else {
-            // 폭발 로직
-            this.velocity.x *= 1.02;
-            this.velocity.y *= 1.02;
+            // 폭발 로직 (사이즈별 차별화된 중력 효과)
+            this.velocity.x *= this.airResistance; // 공기 저항 (개별 설정)
+            this.velocity.y += this.gravityFactor; // 중력 효과 (사이즈별 차별화)
             this.pos.x += this.velocity.x;
             this.pos.y += this.velocity.y;
-            this.size -= 0.5;
+            this.size -= 0.05;
             
             if (this.size <= 0) {
                 this.size = 0;
@@ -182,17 +221,27 @@ class Particle {
         }
     }
 
-    // 최적화된 draw 메서드
+    // 최적화된 draw 메서드 (회전 효과 포함)
     draw(ctx) {
         if (this.size <= 0) return;
         
         const halfSize = this.size * 0.5;
-        const x = this.pos.x - halfSize;
-        const y = this.pos.y - halfSize;
+        const x = this.pos.x;
+        const y = this.pos.y;
         
-        // fillStyle 설정 최소화
-        ctx.fillStyle = `rgb(${this.color.r},${this.color.g},${this.color.b})`;
-        ctx.fillRect(x, y, this.size, this.size);
+        // 회전 효과가 있는 경우
+        if (this.currentRotation !== 0 && !this.atTarget) {
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.rotate(this.currentRotation);
+            ctx.fillStyle = `rgb(${this.color.r},${this.color.g},${this.color.b})`;
+            ctx.fillRect(-halfSize, -halfSize, this.size, this.size);
+            ctx.restore();
+        } else {
+            // 기본 렌더링
+            ctx.fillStyle = `rgb(${this.color.r},${this.color.g},${this.color.b})`;
+            ctx.fillRect(x - halfSize, y - halfSize, this.size, this.size);
+        }
     }
 
     isAtTarget() {
@@ -204,11 +253,22 @@ class Particle {
         this.needsUpdate = true;
         this.isActive = true;
         
-        // 폭발 속도 설정 (계산 최적화)
+        // 사이즈에 따른 물리 속성 설정
+        this.mass = this.size / 10; // 사이즈에 비례한 질량
+        
+        // 큰 파티클: 빠르게 떨어짐, 작은 파티클: 천천히 떨어짐
+        const sizeRatio = this.size / 20; // 사이즈 비율 (일반적으로 0.5-2.0)
+        this.gravityFactor = 0.3 + (sizeRatio * 0.4) + (Math.random() * 0.2 - 0.1); // 0.2-0.9 + 랜덤
+        
+        // 공기 저항도 사이즈에 따라 조정 (큰 파티클은 저항이 적음)
+        this.airResistance = 0.98 - (sizeRatio * 0.05) + (Math.random() * 0.02 - 0.01); // 0.93-0.99 + 랜덤
+        
+        // 폭발 속도 설정 (사이즈에 따라 차별화)
         const randX = Math.random() - 0.5;
         const randY = Math.random() - 0.5;
-        this.velocity.x = randX * 3;
-        this.velocity.y = randY * 2;
+        const speedMultiplier = 1 + (sizeRatio * 0.5) + (Math.random() * 0.3 - 0.15); // 랜덤 속도 변화
+        this.velocity.x = randX * 3 * speedMultiplier;
+        this.velocity.y = randY * 2 * speedMultiplier;
     }
 }
 

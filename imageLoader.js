@@ -1,4 +1,6 @@
 
+import imageWorkerManager from './ImageWorkerManager.js';
+
 // Use a Map for more flexible caching. Key is the person's absolute index.
 export const imageDataCache = new Map();
 let _shuffledPeople = [];
@@ -6,8 +8,9 @@ let _stepPixel = 20;
 
 /**
  * Helper function to process a loaded image into pixel data.
+ * 웹 워커를 사용하여 백그라운드에서 처리
  */
-function processImageToPixelData(img, stepPixel) {
+async function processImageToPixelData(img, stepPixel) {
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     canvas.width = window.innerWidth / 4;
@@ -30,52 +33,85 @@ function processImageToPixelData(img, stepPixel) {
 
     ctx.drawImage(img, offsetX, offsetY, drawWidth, drawHeight);
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const data = imageData.data;
-    const pixelData = [];
+    
+    try {
+        // 웹 워커를 사용하여 이미지 처리
+        const pixelData = await imageWorkerManager.processImageAsync(
+            imageData, 
+            stepPixel, 
+            canvas.width, 
+            canvas.height,
+            { offsetX, offsetY, drawWidth, drawHeight }
+        );
+        
+        // 투명하지 않은 픽셀만 필터링 (기존 로직 유지)
+        return pixelData.filter(pixel => {
+            const idx = (pixel.y * canvas.width + pixel.x) * 4;
+            const a = imageData.data[idx + 3];
+            return a > 128;
+        });
+        
+    } catch (error) {
+        console.warn('웹 워커 이미지 처리 실패, 메인 스레드로 폴백:', error);
+        
+        // 폴백: 메인 스레드에서 처리
+        const pixelData = [];
+        const data = imageData.data;
 
-    for (let y = 0; y < canvas.height; y += stepPixel) {
-        for (let x = 0; x < canvas.width; x += stepPixel) {
-            const idx = (y * canvas.width + x) * 4;
-            const a = data[idx + 3];
+        for (let y = 0; y < canvas.height; y += stepPixel) {
+            for (let x = 0; x < canvas.width; x += stepPixel) {
+                const idx = (y * canvas.width + x) * 4;
+                const a = data[idx + 3];
 
-            if (a > 128) { // Only consider non-transparent pixels
-                const r = data[idx];
-                const g = data[idx + 1];
-                const b = data[idx + 2];
-                const invertedR = 255 - r;
-                const invertedG = 255 - g;
-                const invertedB = 255 - b;
-                pixelData.push({
-                    x: x,
-                    y: y,
-                    color: { r: invertedR, g: invertedG, b: invertedB }
-                });
+                if (a > 128) { // Only consider non-transparent pixels
+                    const r = data[idx];
+                    const g = data[idx + 1];
+                    const b = data[idx + 2];
+                    const invertedR = 255 - r;
+                    const invertedG = 255 - g;
+                    const invertedB = 255 - b;
+                    pixelData.push({
+                        x: x,
+                        y: y,
+                        color: { r: invertedR, g: invertedG, b: invertedB }
+                    });
+                }
             }
         }
+        
+        return pixelData;
     }
-    return pixelData;
 }
 
 /**
  * Loads a single image and returns its pixel data along with its original index.
+ * 이제 비동기 이미지 처리를 지원
  */
 function loadImage(person, index, stepPixel) {
-    return new Promise((resolve, reject) => {
+    return new Promise(async (resolve, reject) => {
         const img = new Image();
         img.crossOrigin = "anonymous";
         img.src = person.imageUrl;
 
-        img.onload = () => {
-            const pixels = processImageToPixelData(img, stepPixel);
-            resolve({ index, pixels });
+        img.onload = async () => {
+            try {
+                const pixels = await processImageToPixelData(img, stepPixel);
+                resolve({ index, pixels });
+            } catch (error) {
+                reject(error);
+            }
         };
 
         img.onerror = () => {
             console.warn(`Failed to load from URL: ${person.imageUrl}. Falling back to local path.`);
             img.src = `images/${person.englishName}.png`;
-            img.onload = () => {
-                const pixels = processImageToPixelData(img, stepPixel);
-                resolve({ index, pixels });
+            img.onload = async () => {
+                try {
+                    const pixels = await processImageToPixelData(img, stepPixel);
+                    resolve({ index, pixels });
+                } catch (error) {
+                    reject(error);
+                }
             };
             img.onerror = () => {
                 console.error(`Failed to load image for ${person.englishName} from all sources.`);
