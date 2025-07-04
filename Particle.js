@@ -168,26 +168,32 @@ class Particle {
             
             // 낙엽이 쌓이는 듯한 부드러운 효과
             if (progress > 0) {
-                // 낙엽처럼 부드러운 중력 가속
-                const gravityProgress = Math.pow(progress, 1.3); // 자연스러운 가속
-                const horizontalProgress = Math.pow(progress, 1.3);
+                // 낙엽처럼 자연스러운 낙하 곡선 - 처음 가속 후 공기저항으로 서서히 감속
+                const naturalFallProgress = progress < 0.7 ? 
+                    Math.pow(progress, 0.8) : // 70%까지 부드러운 가속
+                    Math.pow(0.7, 0.8) + (1 - Math.pow(0.7, 0.8)) * (1 - Math.pow(1 - (progress - 0.7) / 0.3, 2)); // 70% 이후 점진적 감속
+                
+                // 수평 이동도 동일한 곡선 적용
+                const horizontalProgress = naturalFallProgress;
                 
                 // 낙엽처럼 좌우로 부드럽게 흔들리는 효과
-                const leafSway = Math.sin(progress * Math.PI * 2 + this.swayAmount) * this.swayAmount * 15 * (1 - progress * 0.7);
+                const swayIntensity = Math.sin(progress * Math.PI * 1.5 + this.swayAmount) * this.swayAmount * 12;
+                const leafSway = swayIntensity * (1 - Math.pow(progress, 1.2)); // 착지할수록 흔들림 자연스럽게 감소
                 
-                // 낙엽처럼 천천히 회전
-                this.currentRotation += this.rotationSpeed * 0.5;
+                // 회전도 자연스럽게 감소 - 낙엽이 바닥에 가까워질수록 회전 느려짐
+                const rotationIntensity = (1 - Math.pow(progress, 1.2));
+                this.currentRotation += this.rotationSpeed * 0.4 * rotationIntensity;
                 
                 // 수평 위치 + 낙엽 흔들림 효과
                 const baseX = this.target.x * horizontalProgress + this.initialX * (1 - horizontalProgress);
                 this.pos.x = baseX + leafSway;
                 
-                // 수직 위치 - 낙엽처럼 부드럽게
+                // 수직 위치 - 자연스러운 낙하
                 const fallDistance = this.target.y - this.initialY;
-                this.pos.y = this.initialY + (fallDistance * gravityProgress);
+                this.pos.y = this.initialY + (fallDistance * naturalFallProgress);
                 
                 // 크기 변화 - 떨어지기 시작할 때부터 도착까지 점진적으로 증가
-                const sizeProgress = Math.pow(progress, 1.2); // 처음부터 부드럽게 증가
+                const sizeProgress = Math.pow(progress, 1.1); // 자연스럽게 증가
                 
                 this.size = this.maxSize + (this.targetSize - this.maxSize) * sizeProgress;
             }
