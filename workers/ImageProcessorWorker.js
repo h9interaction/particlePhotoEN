@@ -58,21 +58,26 @@ class ImageProcessorWorker {
                 if (actualX >= 0 && actualY >= 0 && actualX < canvasWidth && actualY < canvasHeight) {
                     const idx = (actualY * imageWidth + actualX) * 4;
                     
-                    if (idx < pixels.length - 2) {
-                        const r = pixels[idx];
-                        const g = pixels[idx + 1];
-                        const b = pixels[idx + 2];
-                        
-                        // 기존과 동일한 색상 반전 로직
-                        const invertedR = 255 - r;
-                        const invertedG = 255 - g;
-                        const invertedB = 255 - b;
-                        
-                        pixelData.push({
-                            x: actualX,
-                            y: actualY,
-                            color: { r: invertedR, g: invertedG, b: invertedB }
-                        });
+                    // Check for alpha channel and boundary
+                    if (idx < pixels.length - 3) { 
+                        const a = pixels[idx + 3];
+
+                        if (a > 128) { // Only consider non-transparent pixels
+                            const r = pixels[idx];
+                            const g = pixels[idx + 1];
+                            const b = pixels[idx + 2];
+                            
+                            // 기존과 동일한 색상 반전 로직
+                            const invertedR = 255 - r;
+                            const invertedG = 255 - g;
+                            const invertedB = 255 - b;
+                            
+                            pixelData.push({
+                                x: actualX,
+                                y: actualY,
+                                color: { r: invertedR, g: invertedG, b: invertedB }
+                            });
+                        }
                     }
                 }
             }

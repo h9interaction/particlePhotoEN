@@ -57,12 +57,8 @@ async function processImageToPixelData(img, stepPixel) {
             { offsetX, offsetY, drawWidth, drawHeight }
         );
         
-        // 투명하지 않은 픽셀만 필터링 (기존 로직 유지)
-        return pixelData.filter(pixel => {
-            const idx = (pixel.y * canvas.width + pixel.x) * 4;
-            const a = imageData.data[idx + 3];
-            return a > 128;
-        });
+        // The worker now pre-filters transparent pixels, so no need to filter here.
+        return pixelData;
         
     } catch (error) {
         console.warn('웹 워커 이미지 처리 실패, 메인 스레드로 폴백:', error);
