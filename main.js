@@ -67,8 +67,25 @@ function createParticles(canvasId) {
 
 function startConductor() {
     console.log("--- Conductor starting ---");
-    // Start the first animation immediately.
-    conductorTick();
+    
+    // 🔧 BETTER FIX: 초기 캐시가 준비될 때까지 대기
+    const waitForInitialCache = () => {
+        console.log(`Checking initial cache... Current size: ${imageDataCache.size}`);
+        
+        // 최소한 첫 번째 배치(0,1,2,3)가 로드되었는지 확인
+        const hasFirstBatch = imageDataCache.has(0) || imageDataCache.has(1) || imageDataCache.has(2) || imageDataCache.has(3);
+        
+        if (hasFirstBatch) {
+            console.log("✅ Initial cache ready! Starting conductor...");
+            conductorTick();
+        } else {
+            console.log("⏳ Waiting for initial cache... retrying in 50ms");
+            setTimeout(waitForInitialCache, 50);
+        }
+    };
+    
+    // 즉시 캐시 확인 시작
+    waitForInitialCache();
 
     // AnimationManager를 사용하여 메모리 누수 방지
     const intervalId = setInterval(conductorTick, TICK_INTERVAL);
@@ -99,24 +116,28 @@ function conductorTick() {
     // Handle infinite looping of people data
     const loopedPersonIndex = personIndex % shuffledPeople.length;
     
-    // --- 순환 캐시 로직 (단순화) ---
-    // 항상 현재 인덱스 주변의 배치가 로드되어 있도록 보장
+    // --- 순환 캐시 로직 (수정) ---
+    // 현재 요청하는 절대 인덱스 기준으로 배치 관리
     const currentBatch = Math.floor(personIndex / IMAGE_BATCH_SIZE);
     const nextBatchStart = (currentBatch + 1) * IMAGE_BATCH_SIZE;
-    const prevBatchStart = Math.max(0, (currentBatch - 1) * IMAGE_BATCH_SIZE);
     
     // 다음 배치가 캐시에 없으면 미리 로드
-    const nextBatchFirstIndex = nextBatchStart;
-    if (!imageDataCache.has(nextBatchFirstIndex) && nextBatchFirstIndex < shuffledPeople.length * 3) {
+    if (!imageDataCache.has(nextBatchStart) && nextBatchStart < shuffledPeople.length * 10) {
         console.log(`Preloading batch starting at ${nextBatchStart}`);
         loadBatch(nextBatchStart, IMAGE_BATCH_SIZE).catch(console.error);
     }
     
-    // 너무 오래된 배치는 정리 (메모리 절약)
-    const oldBatchStart = Math.max(0, (currentBatch - 3) * IMAGE_BATCH_SIZE);
-    if (imageDataCache.has(oldBatchStart)) {
-        console.log(`Cleaning up old batch starting at ${oldBatchStart}`);
-        cleanupBatch(oldBatchStart, IMAGE_BATCH_SIZE);
+    // 🚫 임시로 배치 정리 비활성화 (메모리는 많이 사용하지만 안정성 우선)
+    // TODO: 배치 정리 로직을 나중에 다시 구현
+    
+    // 🔥 BUG FIX: 현재 배치와 다음 배치는 절대 삭제하지 않음
+    // 충분히 오래된 배치만 정리 (현재-10 배치 이전 것들만)
+    if (false) { // 임시로 비활성화
+        const oldBatchStart = Math.max(0, (currentBatch - 10) * IMAGE_BATCH_SIZE);
+        if (oldBatchStart < currentBatch * IMAGE_BATCH_SIZE && imageDataCache.has(oldBatchStart)) {
+            console.log(`Cleaning up old batch starting at ${oldBatchStart} (current batch: ${currentBatch * IMAGE_BATCH_SIZE})`);
+            cleanupBatch(oldBatchStart, IMAGE_BATCH_SIZE);
+        }
     }
 
     init(canvasId, loopedPersonIndex, personIndex);
@@ -162,8 +183,7 @@ function init(canvasId, loopedPersonIndex, absolutePersonIndex) {
             try {
                 console.log(`🔄 Emergency loading person ${loopedPersonIndex} (absolute: ${absolutePersonIndex})`);
                 
-                // loadBatch를 사용하여 단일 이미지 로드
-                const { loadBatch } = await import('./imageLoader.js');
+                // loadBatch를 사용하여 단일 이미지 로드 (이미 임포트됨)
                 await loadBatch(absolutePersonIndex, 1);
                 
                 // 로드 완료 후 즉시 재시도
