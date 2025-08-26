@@ -28,9 +28,22 @@ const corsOptions = {
   optionsSuccessStatus: 200
 };
 
+// 자동 버전 생성 (서버 시작 시간 기반)
+const startTime = new Date();
+const appVersion = `${startTime.getFullYear()}${String(startTime.getMonth() + 1).padStart(2, '0')}${String(startTime.getDate()).padStart(2, '0')}.${String(startTime.getHours()).padStart(2, '0')}${String(startTime.getMinutes()).padStart(2, '0')}`;
+
+console.log(`🚀 App Version: ${appVersion}`);
+
 // 미들웨어 설정
 app.use(cors(corsOptions));
 app.use(express.json({ limit: '10mb' }));
+
+// 버전 정보를 템플릿 변수로 제공하는 미들웨어
+app.use((req, res, next) => {
+  res.locals.appVersion = appVersion;
+  next();
+});
+
 app.use(express.static('.')); // 현재 디렉토리를 정적 파일 서버로 설정
 
 // 파일 업로드 보안 설정
@@ -1406,6 +1419,27 @@ app.use((error, req, res, next) => {
   res.status(500).json({ 
     error: process.env.NODE_ENV === 'production' ? '서버 내부 오류가 발생했습니다.' : error.message 
   });
+});
+
+// 동적 버전 관리를 위한 라우트
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+app.get('/index.html', (req, res) => {
+    fs.readFile(path.join(__dirname, 'index.html'), 'utf8')
+        .then(html => {
+            // 버전 문자열 자동 교체
+            const versionedHtml = html.replace(
+                /main\.js\?v=[\d.]+/g, 
+                `main.js?v=${appVersion}`
+            );
+            res.send(versionedHtml);
+        })
+        .catch(err => {
+            console.error('index.html 읽기 오류:', err);
+            res.status(500).send('서버 오류');
+        });
 });
 
 // 404 핸들러
