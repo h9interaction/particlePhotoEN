@@ -8,11 +8,22 @@ let _stepPixel = 20;
 
 /**
  * Helper function to process a loaded image into pixel data.
+ * Windows PC GPU 가속 환경 호환성 개선
  * 웹 워커를 사용하여 백그라운드에서 처리
  */
 async function processImageToPixelData(img, stepPixel) {
     const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    
+    // Windows PC GPU 호환성을 위한 Canvas 컨텍스트 설정
+    const isWindowsPC = detectWindowsPC();
+    const contextOptions = {
+        willReadFrequently: true,
+        // Windows PC에서는 하드웨어 가속 비활성화로 getImageData() 호환성 확보
+        desynchronized: !isWindowsPC,
+        alpha: true  // 투명도 처리 필요
+    };
+    
+    const ctx = canvas.getContext('2d', contextOptions);
     canvas.width = window.innerWidth / 4;
     canvas.height = window.innerHeight;
 
@@ -32,7 +43,9 @@ async function processImageToPixelData(img, stepPixel) {
     }
 
     ctx.drawImage(img, offsetX, offsetY, drawWidth, drawHeight);
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    
+    // Windows PC에서 GPU 메모리 동기화를 위한 강제 대기
+    const imageData = await getImageDataWithRetry(ctx, 0, 0, canvas.width, canvas.height, isWindowsPC);
     
     try {
         // 웹 워커를 사용하여 이미지 처리
@@ -181,4 +194,100 @@ export async function initializeImageLoader(people, stepPixel, batchSize) {
         loadBatch(batchSize, batchSize)
     ]);
     console.log("Initial image batches are loaded and cached.");
+}
+
+/**
+ * Windows PC 환경 감지 (AnimationManager와 동일한 로직)
+ * @returns {boolean} Windows PC 여부
+ */
+function detectWindowsPC() {
+    const userAgent = navigator.userAgent.toLowerCase();
+    const isWindows = userAgent.includes('windows') || userAgent.includes('win32') || userAgent.includes('win64');
+    
+    // 가상머신이 아닌 실제 PC 감지
+    const isRealPC = !userAgent.includes('utm') &&
+                    !userAgent.includes('virtual') &&
+                    !userAgent.includes('qemu') &&
+                    !userAgent.includes('parallels');
+    
+    // GPU 정보 확인
+    const canvas = document.createElement('canvas');
+    const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+    let hasDiscreteGPU = false;
+    
+    if (gl) {
+        const renderer = gl.getParameter(gl.RENDERER);
+        hasDiscreteGPU = renderer.toLowerCase().includes('nvidia') ||
+                       renderer.toLowerCase().includes('amd') ||
+                       renderer.toLowerCase().includes('radeon') ||
+                       renderer.toLowerCase().includes('geforce') ||
+                       renderer.toLowerCase().includes('gtx') ||
+                       renderer.toLowerCase().includes('rtx');
+    }
+    
+    return isWindows && isRealPC && hasDiscreteGPU;
+}
+
+/**
+ * Windows PC GPU 환경에서 getImageData() 재시도 로직
+ * @param {CanvasRenderingContext2D} ctx - Canvas 컨텍스트
+ * @param {number} x - X 좌표
+ * @param {number} y - Y 좌표
+ * @param {number} width - 너비
+ * @param {number} height - 높이
+ * @param {boolean} isWindowsPC - Windows PC 여부
+ * @returns {Promise<ImageData>} 이미지 데이터
+ */
+async function getImageDataWithRetry(ctx, x, y, width, height, isWindowsPC) {
+    if (!isWindowsPC) {
+        // Windows PC가 아니면 즉시 반환
+        return ctx.getImageData(x, y, width, height);
+    }
+    
+    let attempts = 0;
+    const maxAttempts = 3;
+    const retryDelay = 16; // 16ms (1 프레임)
+    
+    while (attempts < maxAttempts) {
+        try {
+            // GPU 메모리 동기화를 위한 강제 대기
+            if (attempts > 0) {
+                await new Promise(resolve => setTimeout(resolve, retryDelay * attempts));
+            }
+            
+            const imageData = ctx.getImageData(x, y, width, height);
+            
+            // 데이터 유효성 검사 (모든 픽셀이 검은색인지 확인)
+            const data = imageData.data;
+            let hasValidPixels = false;
+            
+            // 샘플링으로 빠르게 검사 (전체의 1%)
+            for (let i = 0; i < data.length; i += 400) {
+                if (data[i] !== 0 || data[i + 1] !== 0 || data[i + 2] !== 0) {
+                    hasValidPixels = true;
+                    break;
+                }
+            }
+            
+            if (hasValidPixels) {
+                if (attempts > 0) {
+                    console.log(`getImageData 성공 (시도 ${attempts + 1}/${maxAttempts})`);
+                }
+                return imageData;
+            } else if (attempts === maxAttempts - 1) {
+                // 마지막 시도에서도 실패한 경우 경고하고 그래도 반환
+                console.warn('getImageData: 모든 픽셀이 검은색입니다. GPU 가속 문제 가능성이 있습니다.');
+                return imageData;
+            }
+            
+        } catch (error) {
+            console.warn(`getImageData 시도 ${attempts + 1} 실패:`, error);
+        }
+        
+        attempts++;
+    }
+    
+    // 모든 시도 실패 시 기본 호출
+    console.error('getImageData 재시도 모두 실패, 기본 호출로 대체');
+    return ctx.getImageData(x, y, width, height);
 }

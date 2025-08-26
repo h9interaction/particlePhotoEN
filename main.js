@@ -43,7 +43,7 @@ async function dataLoad() {
             throw new Error('peopleData is empty');
         }
         shuffledPeople = shuffleArray([...peopleData]);
-        console.log("People data shuffled. Initializing image loader...");
+        console.log(`People data shuffled. Total people: ${shuffledPeople.length}. Initializing image loader...`);
 
         await initializeImageLoader(shuffledPeople, stepPixel, IMAGE_BATCH_SIZE);
 
@@ -96,26 +96,30 @@ function conductorTick() {
 
     console.log(`Conductor tick: Starting ${canvasId} with person index ${personIndex}`);
 
-    // --- Double Buffering Logic ---
-    // This is the perfect place to manage the buffer, as it's tied to the assignment of a new index.
-    const batchNumber = Math.floor(personIndex / IMAGE_BATCH_SIZE);
-    if (personIndex % IMAGE_BATCH_SIZE === 0 && batchNumber > 0) {
-        const batchToLoadIndex = (batchNumber + 1) * IMAGE_BATCH_SIZE;
-        const batchToCleanupIndex = (batchNumber - 1) * IMAGE_BATCH_SIZE;
-
-        console.log(`Triggering buffer update at person index ${personIndex}`);
-        console.log(`  - Loading batch @ ${batchToLoadIndex}`);
-        console.log(`  - Cleaning up batch @ ${batchToCleanupIndex}`);
-
-        // Perform in the background
-        cleanupBatch(batchToCleanupIndex, IMAGE_BATCH_SIZE);
-        loadBatch(batchToLoadIndex, IMAGE_BATCH_SIZE).catch(console.error);
-    }
-    
     // Handle infinite looping of people data
     const loopedPersonIndex = personIndex % shuffledPeople.length;
+    
+    // --- 순환 캐시 로직 (단순화) ---
+    // 항상 현재 인덱스 주변의 배치가 로드되어 있도록 보장
+    const currentBatch = Math.floor(personIndex / IMAGE_BATCH_SIZE);
+    const nextBatchStart = (currentBatch + 1) * IMAGE_BATCH_SIZE;
+    const prevBatchStart = Math.max(0, (currentBatch - 1) * IMAGE_BATCH_SIZE);
+    
+    // 다음 배치가 캐시에 없으면 미리 로드
+    const nextBatchFirstIndex = nextBatchStart;
+    if (!imageDataCache.has(nextBatchFirstIndex) && nextBatchFirstIndex < shuffledPeople.length * 3) {
+        console.log(`Preloading batch starting at ${nextBatchStart}`);
+        loadBatch(nextBatchStart, IMAGE_BATCH_SIZE).catch(console.error);
+    }
+    
+    // 너무 오래된 배치는 정리 (메모리 절약)
+    const oldBatchStart = Math.max(0, (currentBatch - 3) * IMAGE_BATCH_SIZE);
+    if (imageDataCache.has(oldBatchStart)) {
+        console.log(`Cleaning up old batch starting at ${oldBatchStart}`);
+        cleanupBatch(oldBatchStart, IMAGE_BATCH_SIZE);
+    }
 
-    init(canvasId, loopedPersonIndex);
+    init(canvasId, loopedPersonIndex, personIndex);
 }
 
 function onAnimationComplete(canvasId) {
@@ -128,16 +132,17 @@ function onAnimationComplete(canvasId) {
 const animationFrameIds = {};
 const canvasRetryCounters = {}; // 캔버스별 재시도 카운터
 
-function init(canvasId, personIndex) {
-    const person = shuffledPeople[personIndex];
+function init(canvasId, loopedPersonIndex, absolutePersonIndex) {
+    const person = shuffledPeople[loopedPersonIndex];
     
     // 디버깅을 위한 로그
-    console.log(`Trying to load person ${personIndex}, cache size: ${imageDataCache.size}`);
+    console.log(`Trying to load person ${loopedPersonIndex} (absolute: ${absolutePersonIndex}), cache size: ${imageDataCache.size}`);
     
-    const pixels = imageDataCache.get(personIndex);
+    // 캐시는 절대 인덱스로 저장되므로 절대 인덱스로 조회
+    const pixels = imageDataCache.get(absolutePersonIndex);
 
     if (!pixels) {
-        console.error(`Image data for index ${personIndex} not in cache! Will retry...`);
+        console.warn(`Image data for index ${absolutePersonIndex} not in cache! Starting immediate load...`);
         
         // 캐시 상태 확인
         console.log('Available cache keys:', Array.from(imageDataCache.keys()));
@@ -146,15 +151,39 @@ function init(canvasId, personIndex) {
         if (!canvasRetryCounters[canvasId]) canvasRetryCounters[canvasId] = 0;
         canvasRetryCounters[canvasId]++;
         
-        if (canvasRetryCounters[canvasId] > 10) {
+        if (canvasRetryCounters[canvasId] > 5) {
             console.error(`Too many retries for ${canvasId}, skipping to next person`);
             canvasRetryCounters[canvasId] = 0;
             return; // 다음 틱에서 새로운 person index로 시도
         }
         
-        // If data isn't ready, put the canvas back at the front of the queue to be picked up on the next tick.
-        animationQueue.unshift(canvasId);
-        nextPersonIndex--; // Decrement the counter since this attempt failed
+        // 🚀 즉시 로딩 시도 (비동기)
+        const fallbackLoad = async () => {
+            try {
+                console.log(`🔄 Emergency loading person ${loopedPersonIndex} (absolute: ${absolutePersonIndex})`);
+                
+                // loadBatch를 사용하여 단일 이미지 로드
+                const { loadBatch } = await import('./imageLoader.js');
+                await loadBatch(absolutePersonIndex, 1);
+                
+                // 로드 완료 후 즉시 재시도
+                console.log(`✅ Emergency load complete for index ${absolutePersonIndex}`);
+                
+                // 재귀 호출 대신 다음 틱에서 재시도
+                animationQueue.unshift(canvasId);
+                nextPersonIndex--;  // 인덱스 되돌리기
+                
+            } catch (error) {
+                console.error(`❌ Emergency load failed for index ${absolutePersonIndex}:`, error);
+                
+                // 실패 시 다음 person으로 넘어가기
+                animationQueue.unshift(canvasId);
+                nextPersonIndex--; 
+            }
+        };
+        
+        // 비동기로 로딩 시작하고 현재 함수는 종료
+        fallbackLoad();
         return;
     }
     

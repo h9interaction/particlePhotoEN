@@ -21,6 +21,7 @@ class AnimationManager {
     
     /**
      * Canvas 컨텍스트를 캐시하여 성능 향상
+     * Windows PC 하드웨어 가속 호환성 개선
      * @param {string} canvasId - 캔버스 ID
      * @returns {CanvasRenderingContext2D} 캐시된 컨텍스트
      */
@@ -28,15 +29,72 @@ class AnimationManager {
         if (!this.canvasContexts.has(canvasId)) {
             const canvas = document.getElementById(canvasId);
             if (canvas) {
+                // Windows PC GPU 가속 환경에서 getImageData() 호환성을 위한 설정
+                const isWindowsPC = this.detectWindowsPC();
+                
                 const ctx = canvas.getContext('2d', {
                     alpha: false,  // 투명도 비활성화로 성능 향상
                     willReadFrequently: true,
-                    desynchronized: true  // 성능 향상을 위한 비동기 렌더링
+                    // Windows PC에서는 desynchronized 비활성화로 getImageData() 호환성 확보
+                    desynchronized: !isWindowsPC
                 });
+                
+                // Windows PC에서 추가 호환성 설정
+                if (isWindowsPC && ctx) {
+                    // GPU 메모리 동기화를 위한 설정
+                    ctx.imageSmoothingEnabled = true;
+                    ctx.imageSmoothingQuality = 'medium';
+                    
+                    console.log(`Windows PC 감지: ${canvasId} Canvas 호환성 모드 활성화`);
+                }
+                
                 this.canvasContexts.set(canvasId, ctx);
             }
         }
         return this.canvasContexts.get(canvasId);
+    }
+    
+    /**
+     * Windows PC 환경 감지
+     * @returns {boolean} Windows PC 여부
+     */
+    detectWindowsPC() {
+        // User Agent에서 Windows 감지 (navigator.platform 대신 userAgentData 사용)
+        const userAgent = navigator.userAgent.toLowerCase();
+        const isWindows = userAgent.includes('windows') || userAgent.includes('win32') || userAgent.includes('win64');
+        
+        // 가상머신이 아닌 실제 PC 감지 (UTM 등 가상머신 제외)
+        const isRealPC = !userAgent.includes('utm') &&
+                        !userAgent.includes('virtual') &&
+                        !userAgent.includes('qemu') &&
+                        !userAgent.includes('parallels');
+        
+        // GPU 정보 확인 (사용 가능한 경우)
+        const canvas = document.createElement('canvas');
+        const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+        let hasDiscreteGPU = false;
+        
+        if (gl) {
+            const renderer = gl.getParameter(gl.RENDERER);
+            // NVIDIA, AMD 전용 GPU 감지
+            hasDiscreteGPU = renderer.toLowerCase().includes('nvidia') ||
+                           renderer.toLowerCase().includes('amd') ||
+                           renderer.toLowerCase().includes('radeon') ||
+                           renderer.toLowerCase().includes('geforce') ||
+                           renderer.toLowerCase().includes('gtx') ||
+                           renderer.toLowerCase().includes('rtx');
+        }
+        
+        const isWindowsPC = isWindows && isRealPC && hasDiscreteGPU;
+        
+        if (isWindowsPC) {
+            console.log('Windows PC with discrete GPU detected:', {
+                userAgent: navigator.userAgent.substring(0, 100),
+                renderer: gl ? gl.getParameter(gl.RENDERER) : 'Unknown'
+            });
+        }
+        
+        return isWindowsPC;
     }
     
     /**
