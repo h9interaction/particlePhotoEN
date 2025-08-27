@@ -151,3 +151,48 @@ export function shuffleArray(array) {
     return array;
 }
 
+/**
+ * 지정된 크기의 청크로 데이터를 무한 순환하여 가져옵니다.
+ * 예: 7명의 데이터를 4명씩 표시할 때 [0,1,2,3], [4,5,6,0], [1,2,3,4], [5,6,0,1] ...
+ * @param {Array} data - 원본 데이터 배열
+ * @param {number} chunkSize - 한 번에 가져올 청크 크기 (기본값: 4)
+ * @param {number} startIndex - 시작 인덱스 (기본값: 0)
+ * @returns {Array} 청크 데이터 배열
+ */
+export function getInfiniteRotationChunk(data, chunkSize = 4, startIndex = 0) {
+    if (!Array.isArray(data) || data.length === 0) {
+        return [];
+    }
+    
+    const result = [];
+    const totalData = data.length;
+    
+    for (let i = 0; i < chunkSize; i++) {
+        const actualIndex = (startIndex + i) % totalData;
+        result.push(data[actualIndex]);
+    }
+    
+    return result;
+}
+
+/**
+ * 무한 순환 청크를 위한 다음 시작 인덱스를 계산합니다.
+ * @param {number} currentStartIndex - 현재 시작 인덱스
+ * @param {number} dataLength - 데이터 총 길이
+ * @param {number} chunkSize - 청크 크기 (기본값: 4)
+ * @returns {number} 다음 시작 인덱스
+ */
+export function getNextRotationStartIndex(currentStartIndex, dataLength, chunkSize = 4) {
+    return (currentStartIndex + chunkSize) % dataLength;
+}
+
+/**
+ * 무한 순환 청크를 위한 이전 시작 인덱스를 계산합니다.
+ * @param {number} currentStartIndex - 현재 시작 인덱스
+ * @param {number} dataLength - 데이터 총 길이
+ * @param {number} chunkSize - 청크 크기 (기본값: 4)
+ * @returns {number} 이전 시작 인덱스
+ */
+export function getPrevRotationStartIndex(currentStartIndex, dataLength, chunkSize = 4) {
+    return (currentStartIndex - chunkSize + dataLength) % dataLength;
+}
