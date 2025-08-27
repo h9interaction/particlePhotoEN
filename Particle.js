@@ -101,6 +101,10 @@ class Particle {
         this.sizingStartTime = 0; // 사이즈 조정 시작 시간
         this.maxSize = 0; // 최대 사이즈 저장
         
+        // 회전 정착을 위한 변수들
+        this.settlementStarted = false;
+        this.rotationAtSettlement = 0;
+        
         this.reset(x, y, color, canvasWidth, canvasHeight, stepPixel);
     }
 
@@ -115,7 +119,7 @@ class Particle {
         // 밝기 계산 및 크기 설정
         this.brightness = (color.r + color.g + color.b) / 3;
         this.targetSize = Math.max(stepPixel * ((1 - (this.brightness / 255)) * 0.8), stepPixel * 0.2);
-        this.size = 0;
+        this.size = 0; // 먼지처럼 작은 크기로 시작
         
         // 속도 초기화
         this.velocity.x = 0;
@@ -142,7 +146,11 @@ class Particle {
         this.phase = 'falling';
         this.positionComplete = false;
         this.sizingStartTime = 0;
-        this.maxSize = Math.max(stepPixel * 0.2, this.targetSize * 0.2); // 최대 사이즈 설정
+        this.dustSize = stepPixel * 0.05; // 먼지처럼 매우 작은 초기 크기 (기존 maxSize 대신)
+        
+        // 회전 정착 초기화
+        this.settlementStarted = false;
+        this.rotationAtSettlement = 0;
         
         // 타이밍 설정 (더 랜덤하고 넓은 간격)
         const fallHeight = Math.abs(this.pos.y - y); // 떨어져야 하는 거리
@@ -168,10 +176,9 @@ class Particle {
             
             // 낙엽이 쌓이는 듯한 부드러운 효과
             if (progress > 0) {
-                // 낙엽처럼 자연스러운 낙하 곡선 - 처음 가속 후 공기저항으로 서서히 감속
-                const naturalFallProgress = progress < 0.7 ? 
-                    Math.pow(progress, 0.8) : // 70%까지 부드러운 가속
-                    Math.pow(0.7, 0.8) + (1 - Math.pow(0.7, 0.8)) * (1 - Math.pow(1 - (progress - 0.7) / 0.3, 2)); // 70% 이후 점진적 감속
+                // 부드러운 sine 곡선 기반 자연스러운 낙하
+                // 0에서 시작해서 천천히 가속 후 부드럽게 감속하여 1에 도달하는 S자 곡선
+                const naturalFallProgress = 0.5 * (1 - Math.cos(progress * Math.PI));
                 
                 // 수평 이동도 동일한 곡선 적용
                 const horizontalProgress = naturalFallProgress;
@@ -181,8 +188,25 @@ class Particle {
                 const leafSway = swayIntensity * (1 - Math.pow(progress, 1.2)); // 착지할수록 흔들림 자연스럽게 감소
                 
                 // 회전도 자연스럽게 감소 - 낙엽이 바닥에 가까워질수록 회전 느려짐
-                const rotationIntensity = (1 - Math.pow(progress, 1.2));
-                this.currentRotation += this.rotationSpeed * 0.4 * rotationIntensity;
+                // 80% 이후부터는 회전을 0도로 수렴하여 자연스럽게 정착
+                if (progress < 0.8) {
+                    const rotationIntensity = (1 - Math.pow(progress, 1.2));
+                    this.currentRotation += this.rotationSpeed * 0.4 * rotationIntensity;
+                } else {
+                    // 80% 지점에서 정착 시작 - 한 번만 기록
+                    if (!this.settlementStarted) {
+                        this.settlementStarted = true;
+                        this.rotationAtSettlement = this.currentRotation;
+                    }
+                    
+                    // 80~100% 구간에서 회전각을 0으로 부드럽게 수렴
+                    const settlementProgress = (progress - 0.8) / 0.2; // 0~1로 정규화
+                    const easedSettlement = Math.pow(settlementProgress, 0.4); // 부드러운 easing
+                    const targetRotation = 0; // 최종 회전각은 0도 (정렬된 상태)
+                    
+                    // 80% 지점의 회전각에서 0도로 부드럽게 보간
+                    this.currentRotation = this.rotationAtSettlement * (1 - easedSettlement) + targetRotation * easedSettlement;
+                }
                 
                 // 수평 위치 + 낙엽 흔들림 효과
                 const baseX = this.target.x * horizontalProgress + this.initialX * (1 - horizontalProgress);
@@ -192,16 +216,25 @@ class Particle {
                 const fallDistance = this.target.y - this.initialY;
                 this.pos.y = this.initialY + (fallDistance * naturalFallProgress);
                 
-                // 크기 변화 - 떨어지기 시작할 때부터 도착까지 점진적으로 증가
-                const sizeProgress = Math.pow(progress, 1.1); // 자연스럽게 증가
+                // 크기 변화 - 90% 지점부터 급격히 커지도록 수정
+                let sizeProgress = 0;
+                if (progress < 0.7) {
+                    // 70% 지점까지는 먼지 크기 유지
+                    sizeProgress = 0;
+                } else {
+                    // 70% 이후 마지막 70% 구간에서 자연스럽게 커짐
+                    const finalPhaseProgress = (progress - 0.7) / 0.3; // 0~1로 정규화
+                    sizeProgress = Math.pow(finalPhaseProgress, 0.6); // 부드러운 easing으로 자연스럽게 커짐
+                }
                 
-                this.size = this.maxSize + (this.targetSize - this.maxSize) * sizeProgress;
+                this.size = this.dustSize + (this.targetSize - this.dustSize) * sizeProgress;
             }
             
             if (timeElapsed >= 1) {
                 this.pos.x = this.target.x;
                 this.pos.y = this.target.y;
                 this.size = this.targetSize;
+                this.currentRotation = 0; // 완전 도착 시 회전각 확실히 0으로 설정
                 this.atTarget = true;
                 this.needsUpdate = false;
             }
@@ -211,7 +244,14 @@ class Particle {
             this.velocity.y += this.gravityFactor; // 중력 효과 (사이즈별 차별화)
             this.pos.x += this.velocity.x;
             this.pos.y += this.velocity.y;
-            this.size -= 0.05;
+            
+            // 크기별 차별화된 감소율로 자연스럽게 줄어들기
+            const sizeRatio = this.explosionStartSize / 20; // 초기 크기 기준 비율
+            const baseShrinkRate = 0.16; // 기본 감소율 (0.02 → 0.06으로 3배 증가)
+            const sizeBasedShrinkRate = baseShrinkRate * (1.5 - sizeRatio * 0.5); // 큰 파티클은 더 빠르게 줄어듦
+            const randomVariation = 1 + (Math.random() - 0.5) * 0.3; // ±15% 랜덤 변화
+            
+            this.size -= sizeBasedShrinkRate * randomVariation;
             
             if (this.size <= 0) {
                 this.size = 0;
@@ -258,6 +298,10 @@ class Particle {
         this.exploding = true;
         this.needsUpdate = true;
         this.isActive = true;
+        
+        // 폭발 시작 시 크기 정보 저장
+        this.explosionStartSize = this.size;
+        this.explosionStartTime = performance.now();
         
         // 사이즈에 따른 물리 속성 설정
         this.mass = this.size / 10; // 사이즈에 비례한 질량
