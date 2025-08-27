@@ -159,11 +159,11 @@ function init(canvasId, loopedPersonIndex, absolutePersonIndex) {
     // 디버깅을 위한 로그
     console.log(`Trying to load person ${loopedPersonIndex} (absolute: ${absolutePersonIndex}), cache size: ${imageDataCache.size}`);
     
-    // 캐시는 절대 인덱스로 저장되므로 절대 인덱스로 조회
-    const pixels = imageDataCache.get(absolutePersonIndex);
+    // 캐시는 순환된 인덱스로 조회 (무한 순환을 위해)
+    const pixels = imageDataCache.get(loopedPersonIndex);
 
     if (!pixels) {
-        console.warn(`Image data for index ${absolutePersonIndex} not in cache! Starting immediate load...`);
+        console.warn(`Image data for index ${loopedPersonIndex} not in cache! Starting immediate load...`);
         
         // 캐시 상태 확인
         console.log('Available cache keys:', Array.from(imageDataCache.keys()));
@@ -184,17 +184,17 @@ function init(canvasId, loopedPersonIndex, absolutePersonIndex) {
                 console.log(`🔄 Emergency loading person ${loopedPersonIndex} (absolute: ${absolutePersonIndex})`);
                 
                 // loadBatch를 사용하여 단일 이미지 로드 (이미 임포트됨)
-                await loadBatch(absolutePersonIndex, 1);
+                await loadBatch(loopedPersonIndex, 1);
                 
                 // 로드 완료 후 즉시 재시도
-                console.log(`✅ Emergency load complete for index ${absolutePersonIndex}`);
+                console.log(`✅ Emergency load complete for index ${loopedPersonIndex}`);
                 
                 // 재귀 호출 대신 다음 틱에서 재시도
                 animationQueue.unshift(canvasId);
                 nextPersonIndex--;  // 인덱스 되돌리기
                 
             } catch (error) {
-                console.error(`❌ Emergency load failed for index ${absolutePersonIndex}:`, error);
+                console.error(`❌ Emergency load failed for index ${loopedPersonIndex}:`, error);
                 
                 // 실패 시 다음 person으로 넘어가기
                 animationQueue.unshift(canvasId);
