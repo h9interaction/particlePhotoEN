@@ -36,7 +36,13 @@ class AnimationManager {
                     alpha: false,  // 투명도 비활성화로 성능 향상
                     willReadFrequently: true,
                     // Windows PC에서는 desynchronized 비활성화로 getImageData() 호환성 확보
-                    desynchronized: !isWindowsPC
+                    desynchronized: !isWindowsPC,
+                    // 🔧 그래픽 가속 비활성화 설정 추가
+                    antialias: false,
+                    depth: false,
+                    stencil: false,
+                    preserveDrawingBuffer: true,
+                    powerPreference: 'low-power'  // GPU 가속 대신 저전력 모드 사용
                 });
                 
                 // Windows PC에서 추가 호환성 설정
@@ -45,7 +51,11 @@ class AnimationManager {
                     ctx.imageSmoothingEnabled = true;
                     ctx.imageSmoothingQuality = 'medium';
                     
-                    console.log(`Windows PC 감지: ${canvasId} Canvas 호환성 모드 활성화`);
+                    // 🔧 Canvas 요소에 그래픽 가속 비활성화 속성 추가
+                    canvas.style.imageRendering = 'pixelated';  // 하드웨어 가속 비활성화
+                    canvas.style.willChange = 'auto';  // GPU 레이어 생성 방지
+                    
+                    console.log(`Windows PC 감지: ${canvasId} Canvas 호환성 모드 + 그래픽 가속 비활성화 활성화`);
                 }
                 
                 this.canvasContexts.set(canvasId, ctx);

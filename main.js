@@ -220,6 +220,11 @@ function init(canvasId, loopedPersonIndex, absolutePersonIndex) {
     canvas.style.backgroundColor = 'black'; // 배경을 검은색으로 설정
     canvas.style.border = 'none'; // 테두리 제거
     
+    // 🔧 그래픽 가속 비활성화 추가 설정
+    canvas.style.transform = 'translateZ(0)';  // GPU 레이어 강제 비활성화
+    canvas.style.backfaceVisibility = 'hidden';
+    canvas.style.perspective = 'none';
+    
     // 캔버스 상태 확인 로그
     console.log('🖼️ CANVAS SETUP:', {
         id: canvasId,
