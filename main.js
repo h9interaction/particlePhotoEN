@@ -17,7 +17,7 @@ const animationQueue = []; // The queue of canvasIds ready for the next animatio
 
 // --- Constants ---
 const maxParticles = 8200;
-const stepPixel = 22;
+const stepPixel = 16;
 const TICK_INTERVAL = 4000; // The conductor's steady beat for starting animations
 const EXPLOSION_START_DELAY = 3000;
 const EXPLOSION_PARTICLE_DELAY = 3000;
