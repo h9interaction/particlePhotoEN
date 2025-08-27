@@ -63,12 +63,11 @@ class ImageWorkerManager {
         }
         
         try {
+            // Pass the ImageData object directly. Its buffer is transferred for performance.
+            const transferable = [imageData.data.buffer];
+            
             const result = await this.sendMessage('PROCESS_IMAGE', {
-                imageData: {
-                    data: imageData.data,
-                    width: imageData.width,
-                    height: imageData.height
-                },
+                imageData, // Pass the ImageData object itself
                 stepPixel,
                 canvasWidth,
                 canvasHeight,
@@ -77,13 +76,15 @@ class ImageWorkerManager {
                 drawWidth: cropInfo.drawWidth || canvasWidth,
                 drawHeight: cropInfo.drawHeight || canvasHeight,
                 startTime: performance.now()
-            });
+            }, transferable);
             
             return result.pixelData;
             
         } catch (error) {
-            console.warn('워커에서 이미지 처리 실패, 메인 스레드로 폴백:', error);
-            return this.processImageMainThread(imageData, stepPixel, canvasWidth, canvasHeight, cropInfo);
+            console.error('Worker task failed after data transfer. Cannot fallback for this task.', error);
+            // After a transfer, the imageData buffer on the main thread is empty,
+            // so we cannot re-run the process here. Return an empty array.
+            return [];
         }
     }
     
@@ -97,6 +98,12 @@ class ImageWorkerManager {
      * @returns {Array} 처리된 픽셀 데이터
      */
     processImageMainThread(imageData, stepPixel, canvasWidth, canvasHeight, cropInfo = {}) {
+        // Check if imageData is valid, as its buffer might have been transferred.
+        if (!imageData || !imageData.data || imageData.data.length === 0) {
+            console.warn('Fallback impossible: ImageData is invalid or its buffer has been transferred.');
+            return [];
+        }
+
         const pixelData = [];
         const data = imageData.data;
         const { offsetX = 0, offsetY = 0, drawWidth = canvasWidth, drawHeight = canvasHeight } = cropInfo;
@@ -137,9 +144,10 @@ class ImageWorkerManager {
      * 워커에게 메시지 전송
      * @param {string} type - 메시지 타입
      * @param {Object} data - 전송할 데이터
+     * @param {Array} transferList - 소유권을 이전할 객체 목록
      * @returns {Promise} 응답 Promise
      */
-    sendMessage(type, data) {
+    sendMessage(type, data, transferList = []) {
         return new Promise((resolve, reject) => {
             const taskId = this.generateTaskId();
             const timeout = setTimeout(() => {
@@ -153,7 +161,7 @@ class ImageWorkerManager {
                 type,
                 data,
                 taskId
-            });
+            }, transferList);
         });
     }
     
