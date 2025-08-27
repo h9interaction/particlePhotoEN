@@ -14,6 +14,7 @@ class ParticleCalculatorWorkerManager {
         this.fallbackMode = false;
         
         if (this.isSupported) {
+            console.log('ParticleCalculatorWorker 초기화 시작:', this.getStatus());
             this.initializeWorker();
         } else {
             console.warn('Web Workers not supported, using fallback mode');
@@ -30,18 +31,53 @@ class ParticleCalculatorWorkerManager {
             this.worker.onmessage = this.handleWorkerMessage.bind(this);
             this.worker.onerror = this.handleWorkerError.bind(this);
             
-            // 워커 연결 테스트
-            const pingResult = await this.sendMessage('PING', {});
-            if (pingResult && pingResult.message === 'ParticleWorker is alive') {
-                this.isInitialized = true;
-                console.log('ParticleCalculatorWorker 초기화 성공');
-            } else {
-                throw new Error('Worker ping failed');
+            // 웹워커가 완전히 로드될 때까지 잠시 대기
+            await new Promise(resolve => setTimeout(resolve, 100));
+            
+            // 워커 연결 테스트 (더 긴 타임아웃과 재시도)
+            let pingSuccess = false;
+            let attempts = 0;
+            const maxAttempts = 3;
+            
+            while (!pingSuccess && attempts < maxAttempts) {
+                attempts++;
+                console.log(`ParticleCalculatorWorker ping 시도 ${attempts}/${maxAttempts}`);
+                
+                try {
+                    const pingResult = await this.sendMessage('PING', {}, 3000); // 3초 타임아웃
+                    console.log('Ping 결과:', pingResult);
+                    
+                    if (pingResult && pingResult.data && pingResult.data.message === 'ParticleWorker is alive') {
+                        pingSuccess = true;
+                        this.isInitialized = true;
+                        console.log('ParticleCalculatorWorker 초기화 성공');
+                    } else {
+                        console.warn('예상하지 못한 ping 응답:', pingResult);
+                        if (attempts < maxAttempts) {
+                            await new Promise(resolve => setTimeout(resolve, 500)); // 0.5초 대기 후 재시도
+                        }
+                    }
+                } catch (pingError) {
+                    console.warn(`Ping 시도 ${attempts} 실패:`, pingError);
+                    if (attempts < maxAttempts) {
+                        await new Promise(resolve => setTimeout(resolve, 500)); // 0.5초 대기 후 재시도
+                    }
+                }
+            }
+            
+            if (!pingSuccess) {
+                throw new Error(`Worker ping failed after ${maxAttempts} attempts`);
             }
         } catch (error) {
             console.warn('ParticleCalculatorWorker 초기화 실패, 폴백 모드 사용:', error);
             this.fallbackMode = true;
             this.isInitialized = false;
+            
+            // 워커 정리
+            if (this.worker) {
+                this.worker.terminate();
+                this.worker = null;
+            }
         }
     }
     
@@ -51,15 +87,21 @@ class ParticleCalculatorWorkerManager {
     handleWorkerMessage(event) {
         const { type, data, taskId, timestamp } = event.data;
         
+        // console.log('ParticleCalculatorWorkerManager 메시지 수신:', { type, taskId, timestamp });
+        
         if (this.taskQueue.has(taskId)) {
             const { resolve, reject } = this.taskQueue.get(taskId);
             this.taskQueue.delete(taskId);
             
             if (type === 'ERROR') {
+                console.error('워커 에러 응답:', data.error);
                 reject(new Error(data.error));
             } else {
+                // console.log('워커 성공 응답:', { type, dataKeys: Object.keys(data || {}) });
                 resolve({ type, data, timestamp });
             }
+        } else {
+            console.warn('해당하는 taskId를 찾을 수 없음:', taskId);
         }
     }
     
@@ -89,26 +131,39 @@ class ParticleCalculatorWorkerManager {
             
             const taskId = `task_${++this.taskId}_${Date.now()}`;
             
+            // console.log('워커에게 메시지 전송:', { type, taskId, timeout });
+            
             // 타임아웃 설정
             const timeoutId = setTimeout(() => {
                 if (this.taskQueue.has(taskId)) {
                     this.taskQueue.delete(taskId);
-                    reject(new Error('Worker task timeout'));
+                    console.warn('워커 태스크 타임아웃:', { type, taskId, timeout });
+                    reject(new Error(`Worker task timeout after ${timeout}ms`));
                 }
             }, timeout);
             
             this.taskQueue.set(taskId, { 
                 resolve: (result) => {
                     clearTimeout(timeoutId);
+                    console.log('워커 태스크 성공:', { type, taskId });
                     resolve(result);
                 },
                 reject: (error) => {
                     clearTimeout(timeoutId);
+                    console.error('워커 태스크 실패:', { type, taskId, error });
                     reject(error);
                 }
             });
             
-            this.worker.postMessage({ type, data, taskId });
+            try {
+                this.worker.postMessage({ type, data, taskId });
+                console.log('워커 메시지 전송 완료:', { type, taskId });
+            } catch (error) {
+                clearTimeout(timeoutId);
+                this.taskQueue.delete(taskId);
+                console.error('워커 메시지 전송 실패:', error);
+                reject(new Error('Failed to send message to worker: ' + error.message));
+            }
         });
     }
     
@@ -135,9 +190,19 @@ class ParticleCalculatorWorkerManager {
                 duration: p.duration,
                 exploding: p.exploding,
                 atTarget: p.atTarget,
-                color: { r: p.color.r, g: p.color.g, b: p.color.b }
+                color: { r: p.color.r, g: p.color.g, b: p.color.b },
+                currentRotation: p.currentRotation,
+                rotationSpeed: p.rotationSpeed,
+                swayAmount: p.swayAmount,
+                initialX: p.initialX,
+                initialY: p.initialY,
+                dustSize: p.dustSize,
+                settlementStarted: p.settlementStarted,
+                rotationAtSettlement: p.rotationAtSettlement
             }));
             
+            // 타이밍 체크 비활성화
+
             const result = await this.sendMessage('UPDATE_PARTICLES', {
                 particles: particleData,
                 currentTime
@@ -146,16 +211,40 @@ class ParticleCalculatorWorkerManager {
             if (result.type === 'PARTICLES_UPDATED') {
                 // 워커에서 받은 데이터로 기존 파티클 객체들 업데이트
                 const updatedData = result.data.particles;
+                
+                // 상세 로깅 비활성화
+                
                 for (let i = 0; i < particles.length && i < updatedData.length; i++) {
                     const particle = particles[i];
                     const data = updatedData[i];
                     
-                    particle.pos.x = data.pos.x;
-                    particle.pos.y = data.pos.y;
-                    particle.velocity.x = data.velocity.x;
-                    particle.velocity.y = data.velocity.y;
-                    particle.size = data.size;
-                    particle.atTarget = data.atTarget;
+                    // 업데이트 전 로깅 비활성화
+                    
+                    // 기본 속성 업데이트
+                    particle.pos.x = data.pos.x || 0;
+                    particle.pos.y = data.pos.y || 0;
+                    particle.velocity.x = data.velocity.x || 0;
+                    particle.velocity.y = data.velocity.y || 0;
+                    particle.size = Math.max(data.size || 0.1, 0.1); // 최소 크기 보장
+                    particle.atTarget = data.atTarget || false;
+                    
+                    // 렌더링에 필요한 추가 속성들 업데이트
+                    if (data.currentRotation !== undefined) {
+                        particle.currentRotation = data.currentRotation;
+                    }
+                    if (data.settlementStarted !== undefined) {
+                        particle.settlementStarted = data.settlementStarted;
+                    }
+                    if (data.rotationAtSettlement !== undefined) {
+                        particle.rotationAtSettlement = data.rotationAtSettlement;
+                    }
+                    if (data.color) {
+                        particle.color.r = data.color.r;
+                        particle.color.g = data.color.g;
+                        particle.color.b = data.color.b;
+                    }
+                    
+                    // 업데이트 후 로깅 비활성화
                 }
                 return particles;
             } else {
@@ -163,6 +252,18 @@ class ParticleCalculatorWorkerManager {
             }
         } catch (error) {
             console.warn('Worker particle update failed, using fallback:', error);
+            
+            // 웹워커가 반복적으로 실패하는 경우 폴백 모드로 전환
+            if (!this.fallbackMode) {
+                console.warn('웹워커 연속 실패 감지, 폴백 모드로 전환');
+                this.fallbackMode = true;
+                this.isInitialized = false;
+                if (this.worker) {
+                    this.worker.terminate();
+                    this.worker = null;
+                }
+            }
+            
             return this.fallbackUpdateParticles(particles, currentTime);
         }
     }
@@ -283,7 +384,7 @@ class ParticleCalculatorWorkerManager {
     }
     
     /**
-     * 워커 상태 정보
+     * 워커 상태 정보 (디버깅용 정보 포함)
      */
     getStatus() {
         return {
@@ -291,7 +392,15 @@ class ParticleCalculatorWorkerManager {
             isInitialized: this.isInitialized,
             fallbackMode: this.fallbackMode,
             pendingTasks: this.taskQueue.size,
-            workerType: 'ParticleCalculatorWorker'
+            workerType: 'ParticleCalculatorWorker',
+            hasWorker: !!this.worker,
+            debugInfo: {
+                userAgent: navigator.userAgent,
+                platform: navigator.userAgentData?.platform || navigator.platform || 'unknown',
+                isWindows: (navigator.userAgentData?.platform || navigator.platform || '').toLowerCase().includes('win'),
+                isMac: (navigator.userAgentData?.platform || navigator.platform || '').toLowerCase().includes('mac'),
+                workerSupported: typeof Worker !== 'undefined'
+            }
         };
     }
     

@@ -63,35 +63,116 @@ class ParticleCalculatorWorker {
     }
     
     /**
-     * 형성 단계 파티클 업데이트 (기존 로직과 동일)
+     * 형성 단계 파티클 업데이트 (Particle.js의 update 로직과 동일)
      * @param {Object} particle - 파티클 데이터
      * @param {number} currentTime - 현재 시간
      * @returns {Object} 업데이트된 파티클
      */
     updateFormationParticle(particle, currentTime) {
         const timeElapsed = (currentTime - particle.startTime) / particle.duration;
-        const progress = this.easeInOutQuart(Math.min(Math.max(timeElapsed, 0), 1));
+        const progress = Math.min(Math.max(timeElapsed, 0), 1);
         
-        // 기존과 동일한 로직
-        const growthFactor = 2.5;
-        const speed = Math.pow(progress, growthFactor);
+        let newParticle = { ...particle };
         
-        const newParticle = {
-            ...particle,
-            pos: {
-                x: particle.target.x * speed + particle.pos.x * (1 - speed),
-                y: particle.target.y * speed + particle.pos.y * (1 - speed)
-            },
-            size: particle.targetSize * speed,
-            atTarget: timeElapsed >= 1
-        };
+        // 애니메이션 시작 전에는 먼지 크기 유지 (위치는 그대로 두기)
+        if (progress <= 0) {
+            newParticle.size = particle.dustSize || 0.1; // 최소 크기 보장
+            // 위치는 원래 값 유지 (고정하지 않음)
+            return newParticle;
+        }
+        
+        if (progress > 0) {
+            // 부드러운 sine 곡선 기반 자연스러운 낙하
+            const naturalFallProgress = 0.5 * (1 - Math.cos(progress * Math.PI));
+            const horizontalProgress = naturalFallProgress;
+            
+            // 낙엽처럼 좌우로 부드럽게 흔들리는 효과
+            const swayIntensity = Math.sin(progress * Math.PI * 1.5 + particle.swayAmount) * particle.swayAmount * 12;
+            const leafSway = swayIntensity * (1 - Math.pow(progress, 1.2));
+            
+            // 회전 로직 업데이트
+            if (progress < 0.8) {
+                const rotationIntensity = (1 - Math.pow(progress, 1.2));
+                newParticle.currentRotation = (particle.currentRotation || 0) + particle.rotationSpeed * 0.4 * rotationIntensity;
+            } else {
+                // 80% 지점에서 정착 시작
+                if (!particle.settlementStarted) {
+                    newParticle.settlementStarted = true;
+                    newParticle.rotationAtSettlement = particle.currentRotation || 0;
+                }
+                
+                // 80~100% 구간에서 회전각을 0으로 부드럽게 수렴
+                const settlementProgress = (progress - 0.8) / 0.2;
+                const easedSettlement = Math.pow(settlementProgress, 0.4);
+                const targetRotation = 0;
+                
+                newParticle.currentRotation = (particle.rotationAtSettlement || 0) * (1 - easedSettlement) + targetRotation * easedSettlement;
+            }
+            
+            // 수평 위치 + 낙엽 흔들림 효과
+            const baseX = particle.target.x * horizontalProgress + particle.initialX * (1 - horizontalProgress);
+            newParticle.pos.x = baseX + leafSway;
+            
+            // 🔧 수직 위치 - 자연스러운 낙하 (안전한 초기값 보장)
+            // 극단적인 초기 Y값을 합리적 범위로 제한
+            let safeInitialY = particle.initialY || -300;
+            if (safeInitialY < -800) safeInitialY = -300; // 너무 위에서 시작하지 않도록
+            
+            const safeTargetY = particle.target.y || 400;
+            const fallDistance = safeTargetY - safeInitialY;
+            newParticle.pos.y = safeInitialY + (fallDistance * naturalFallProgress);
+            
+            // 디버깅: 극단적인 위치값 체크
+            if (Math.random() < 0.01 && (newParticle.pos.y < -500 || newParticle.pos.y > 1000)) {
+                console.warn('⚠️ 극단적 위치:', {
+                    originalInitialY: particle.initialY,
+                    safeInitialY,
+                    targetY: safeTargetY,
+                    progress: naturalFallProgress,
+                    finalY: newParticle.pos.y
+                });
+            }
+            
+            // 크기 변화 - 90% 지점부터 급격히 커지도록
+            let sizeProgress = 0;
+            if (progress < 0.7) {
+                sizeProgress = 0;
+            } else {
+                const finalPhaseProgress = (progress - 0.7) / 0.3;
+                sizeProgress = Math.pow(finalPhaseProgress, 0.6);
+            }
+            
+            // 안전한 크기 계산 (NaN 방지)
+            const dustSize = particle.dustSize || 0.1; // 최소 크기 보장
+            const targetSize = particle.targetSize || 2; // 기본 타겟 크기
+            
+            // 🔧 핵심 수정: 애니메이션 초기에도 최소한 보이도록 크기 조정
+            // 원본: progress < 0.7일 때 dustSize(≈0.05)로 거의 안보임
+            // 수정: progress < 0.7일 때도 최소 1픽셀 크기 보장
+            let calculatedSize;
+            if (sizeProgress === 0) {
+                // 70% 이전: 먼지 크기지만 최소 0.8픽셀은 보장
+                calculatedSize = Math.max(dustSize, 0.8);
+            } else {
+                // 70% 이후: 정상적인 크기 증가
+                calculatedSize = dustSize + (targetSize - dustSize) * sizeProgress;
+            }
+            
+            newParticle.size = Math.max(calculatedSize, 0.5); // 절대 최소값
+        }
         
         // 타겟에 도달했을 때 정확한 위치로 설정
         if (timeElapsed >= 1) {
-            newParticle.pos.x = particle.target.x;
-            newParticle.pos.y = particle.target.y;
-            newParticle.size = particle.targetSize;
+            newParticle.pos.x = particle.target.x || 0;
+            newParticle.pos.y = particle.target.y || 400;
+            newParticle.size = particle.targetSize || 2; // 기본값을 더 크게
+            newParticle.currentRotation = 0;
             newParticle.atTarget = true;
+        }
+        
+        // 디버깅 (매우 제한적)
+        if (Math.random() < 0.001) {
+            console.log('Worker:', { progress, size: newParticle.size, pos: newParticle.pos });
         }
         
         return newParticle;

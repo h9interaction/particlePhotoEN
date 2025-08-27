@@ -269,7 +269,15 @@ class Particle {
 
     // 최적화된 draw 메서드 (회전 효과 포함)
     draw(ctx) {
-        if (this.size <= 0) return;
+        // 디버깅 최소화
+        if (Math.random() < 0.0001) {
+            console.log('Draw:', { size: this.size, x: Math.round(this.pos.x), y: Math.round(this.pos.y) });
+        }
+        
+        if (this.size <= 0) {
+            if (Math.random() < 0.001) console.log('파티클 크기가 0 이하로 렌더링 스킵');
+            return;
+        }
         
         const halfSize = this.size * 0.5;
         const x = this.pos.x;

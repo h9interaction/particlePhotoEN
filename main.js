@@ -238,13 +238,27 @@ function init(canvasId, loopedPersonIndex, absolutePersonIndex) {
         // 전역 애니메이션 상태 업데이트
         particlePools[canvasId].updateGlobalState(timestamp);
         
+        // 🚨 웹워커 성능 측정
+        const workerStartTime = performance.now();
+        
         // Web Worker를 통한 파티클 계산 (폴백 지원)
         try {
             await particleCalculatorWorkerManager.updateParticles(particles, timestamp);
+            
+            const workerTime = performance.now() - workerStartTime;
+            // 성능 로깅을 매우 제한적으로만
+            if (workerTime > 50 && Math.random() < 0.01) {
+                console.warn('⚠️ 웹워커 느림:', `${workerTime.toFixed(1)}ms`);
+            }
         } catch (error) {
             // 폴백: 메인 스레드에서 직접 계산
             for (let i = 0; i < particles.length; i++) {
                 particles[i].update(timestamp);
+            }
+            
+            // 폴백 모드 로깅 최소화
+            if (Math.random() < 0.01) {
+                console.log('🔄 폴백모드:', error.message);
             }
         }
         
