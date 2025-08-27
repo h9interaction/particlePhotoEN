@@ -70,18 +70,60 @@ class ParticleCalculatorWorker {
      */
     updateFormationParticle(particle, currentTime) {
         const timeElapsed = (currentTime - particle.startTime) / particle.duration;
-        const progress = Math.min(Math.max(timeElapsed, 0), 1);
+        let rawProgress = Math.min(Math.max(timeElapsed, 0), 1);
+        
+        // 🔥 Progress를 강제로 느리게 만들기 (제곱근 사용)
+        let progress = Math.sqrt(rawProgress * 0.5); // 진행률을 극도로 느리게
+        
+        // Progress 상황 디버깅 (매우 제한적)
+        if (Math.random() < 0.005) {
+            console.log('⏱️ PROGRESS DEBUG:', {
+                timeElapsed: timeElapsed.toFixed(3),
+                rawProgress: rawProgress.toFixed(3), 
+                finalProgress: progress.toFixed(3),
+                startTime: particle.startTime,
+                currentTime,
+                duration: particle.duration
+            });
+        }
         
         let newParticle = { ...particle };
         
-        // 애니메이션 시작 전에는 먼지 크기 유지 (위치는 그대로 두기)
-        if (progress <= 0) {
-            newParticle.size = particle.dustSize || 0.1; // 최소 크기 보장
-            // 위치는 원래 값 유지 (고정하지 않음)
+        // 애니메이션 시작 전 + 추가 지연 (더 오래 초기 상태 유지)
+        if (progress <= 0.1) { // 10% 지점까지 초기 상태 유지
+            newParticle.size = 100; // 극대 크기로 강제 설정
+            
+            // 🔥 ULTRA FIX: 초기 위치를 화면 바로 위로 강제 설정
+            newParticle.pos.x = particle.initialX || particle.pos.x;
+            let safeInitialY = particle.initialY || -100;
+            // initialY가 너무 위에 있으면 강제로 화면 근처로 조정
+            if (safeInitialY < -200) safeInitialY = -50 - (Math.random() * 100);
+            newParticle.pos.y = safeInitialY;
+            
+            // 대기 상태 로그 (Y 위치 확인)
+            if (Math.random() < 0.01) {
+                console.log('🕒 WAITING PHASE:', { 
+                    progress: progress.toFixed(3), 
+                    timeElapsed: ((currentTime - particle.startTime) / 1000).toFixed(1) + 's',
+                    originalY: particle.initialY,
+                    safeY: safeInitialY,
+                    finalY: newParticle.pos.y
+                });
+            }
             return newParticle;
         }
         
-        if (progress > 0) {
+        if (progress > 0.1) {
+            // 애니메이션 진행 상황 로그 
+            if (Math.random() < 0.02) {
+                console.log('🎬 ANIMATION ACTIVE:', {
+                    progress: progress.toFixed(3),
+                    timeElapsed: ((currentTime - particle.startTime) / 1000).toFixed(1) + 's',
+                    initialY: particle.initialY,
+                    targetY: particle.target?.y || 'undefined'
+                });
+            }
+            
             // 부드러운 sine 곡선 기반 자연스러운 낙하
             const naturalFallProgress = 0.5 * (1 - Math.cos(progress * Math.PI));
             const horizontalProgress = naturalFallProgress;
@@ -151,26 +193,26 @@ class ParticleCalculatorWorker {
             // 수정: progress < 0.7일 때도 최소 1픽셀 크기 보장
             let calculatedSize;
             if (sizeProgress === 0) {
-                // 70% 이전: 먼지 크기지만 최소 0.8픽셀은 보장
-                calculatedSize = Math.max(dustSize, 0.8);
+                // 70% 이전: 극대 크기로 강제 설정
+                calculatedSize = 100;
             } else {
                 // 70% 이후: 정상적인 크기 증가
                 calculatedSize = dustSize + (targetSize - dustSize) * sizeProgress;
             }
             
-            newParticle.size = Math.max(calculatedSize, 0.5); // 절대 최소값
+            newParticle.size = Math.max(calculatedSize, 100); // 극대 최소값
         }
         
         // 타겟에 도달했을 때 정확한 위치로 설정
         if (timeElapsed >= 1) {
             newParticle.pos.x = particle.target.x || 0;
             newParticle.pos.y = particle.target.y || 400;
-            newParticle.size = particle.targetSize || 2; // 기본값을 더 크게
+            newParticle.size = 100; // 타겟 도달시에도 극대 크기
             newParticle.currentRotation = 0;
             newParticle.atTarget = true;
         }
         
-        // 디버깅 (매우 제한적)
+        // 디버깅 최소화
         if (Math.random() < 0.001) {
             console.log('Worker:', { progress, size: newParticle.size, pos: newParticle.pos });
         }

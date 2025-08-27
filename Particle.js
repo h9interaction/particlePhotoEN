@@ -125,10 +125,10 @@ class Particle {
         this.velocity.x = 0;
         this.velocity.y = 0;
         
-        // 시작 위치 설정 (상단에서 떨어지는 모래 효과)
+        // 🔥 ULTRA FIX: 화면 바로 위에서 시작하도록 강제 설정
         this.pos.x = x + (Math.random() - 0.5) * 200; // 더 넓은 범위에서 시작
-        this.initialY = -400 - (Math.random() * 600); // 훨씬 높은 곳에서 시작
-        this.pos.y = this.initialY; // 화면 상단 위에서 시작
+        this.initialY = -50 - (Math.random() * 100); // 화면 바로 위(-50~-150)에서 시작
+        this.pos.y = this.initialY; // 화면 바로 위에서 시작
         
         // 드라마틱한 효과를 위한 추가 속성
         this.initialX = this.pos.x; // 초기 X 위치 저장
@@ -158,11 +158,11 @@ class Particle {
         const randomDelay = Math.random() * 1500; // 큰 랜덤 지연 (0-1.5초)
         const extraRandomDelay = Math.random() * Math.random() * 2000; // 이중 랜덤으로 더 불규칙하게
         
-        this.startTime = performance.now() + baseHeightDelay + randomDelay + extraRandomDelay;
+        this.startTime = performance.now() + baseHeightDelay + randomDelay + extraRandomDelay; // 원래 지연으로 복구
         
-        // 듀레이션도 더 길고 랜덤하게
-        const baseDuration = 2500 + (fallHeight / canvasHeight) * 1500; // 기본 듀레이션 증가
-        const randomDurationVariation = (Math.random() - 0.5) * 1000; // ±0.5초 변화
+        // 듀레이션을 원래대로 복구 (3~8초)
+        const baseDuration = 3000; // 3초 기본
+        const randomDurationVariation = Math.random() * 5000; // 0~5초 추가
         this.duration = baseDuration + randomDurationVariation;
         this.lastUpdateTime = 0;
     }
@@ -173,6 +173,17 @@ class Particle {
         if (!this.exploding) {
             const timeElapsed = (currentTime - this.startTime) / this.duration;
             const progress = Math.min(Math.max(timeElapsed, 0), 1);
+            
+            // 🚨 ULTRA DEBUG: 애니메이션 시작 및 초기 진행 상황 로깅
+            if (progress > 0 && progress <= 0.1 && Math.random() < 0.02) {
+                // console.log('🎬 메인스레드 등장 START:', {
+                //     progress: progress.toFixed(3),
+                //     timeElapsed: ((currentTime - this.startTime) / 1000).toFixed(1) + 's',
+                //     initialY: this.initialY,
+                //     currentY: this.pos.y,
+                //     targetY: this.target.y
+                // });
+            }
             
             // 낙엽이 쌓이는 듯한 부드러운 효과
             if (progress > 0) {
@@ -215,6 +226,18 @@ class Particle {
                 // 수직 위치 - 자연스러운 낙하
                 const fallDistance = this.target.y - this.initialY;
                 this.pos.y = this.initialY + (fallDistance * naturalFallProgress);
+                
+                // 🚨 ULTRA DEBUG: 위치 계산 후 파티클 위치 로깅
+                if (progress > 0 && progress <= 0.3 && Math.random() < 0.01) {
+                    // console.log('📍 메인스레드 위치 UPDATE:', {
+                    //     progress: progress.toFixed(3),
+                    //     fallProgress: naturalFallProgress.toFixed(3),
+                    //     initialY: this.initialY,
+                    //     currentY: this.pos.y,
+                    //     targetY: this.target.y,
+                    //     fallDistance: fallDistance.toFixed(1)
+                    // });
+                }
                 
                 // 크기 변화 - 90% 지점부터 급격히 커지도록 수정
                 let sizeProgress = 0;
@@ -269,31 +292,24 @@ class Particle {
 
     // 최적화된 draw 메서드 (회전 효과 포함)
     draw(ctx) {
-        // 디버깅 최소화
-        if (Math.random() < 0.0001) {
-            console.log('Draw:', { size: this.size, x: Math.round(this.pos.x), y: Math.round(this.pos.y) });
-        }
-        
-        if (this.size <= 0) {
-            if (Math.random() < 0.001) console.log('파티클 크기가 0 이하로 렌더링 스킵');
-            return;
-        }
+        if (this.size <= 0) return;
         
         const halfSize = this.size * 0.5;
         const x = this.pos.x;
         const y = this.pos.y;
+        
+        // 원래 색상으로 복구 (흰색)
+        ctx.fillStyle = `rgb(${this.color.r}, ${this.color.g}, ${this.color.b})`;
         
         // 회전 효과가 있는 경우
         if (this.currentRotation !== 0 && !this.atTarget) {
             ctx.save();
             ctx.translate(x, y);
             ctx.rotate(this.currentRotation);
-            ctx.fillStyle = `rgb(${this.color.r},${this.color.g},${this.color.b})`;
             ctx.fillRect(-halfSize, -halfSize, this.size, this.size);
             ctx.restore();
         } else {
             // 기본 렌더링
-            ctx.fillStyle = `rgb(${this.color.r},${this.color.g},${this.color.b})`;
             ctx.fillRect(x - halfSize, y - halfSize, this.size, this.size);
         }
     }

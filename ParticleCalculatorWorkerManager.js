@@ -11,15 +11,19 @@ class ParticleCalculatorWorkerManager {
         this.taskQueue = new Map();
         this.taskId = 0;
         this.isInitialized = false;
-        this.fallbackMode = false;
         
-        if (this.isSupported) {
-            console.log('ParticleCalculatorWorker 초기화 시작:', this.getStatus());
-            this.initializeWorker();
-        } else {
-            console.warn('Web Workers not supported, using fallback mode');
-            this.fallbackMode = true;
-        }
+        // 🚨 테스트용: 웹워커 강제 비활성화 - 폴백 모드만 사용
+        this.fallbackMode = true;
+        console.log('🔧 웹워커 강제 비활성화 - 메인 스레드에서만 파티클 계산 수행');
+        
+        // 원본 코드 (웹워커 사용시):
+        // if (this.isSupported) {
+        //     console.log('ParticleCalculatorWorker 초기화 시작:', this.getStatus());
+        //     this.initializeWorker();
+        // } else {
+        //     console.warn('Web Workers not supported, using fallback mode');
+        //     this.fallbackMode = true;
+        // }
     }
     
     /**

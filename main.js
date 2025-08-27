@@ -111,7 +111,7 @@ function conductorTick() {
     const canvasId = animationQueue.shift(); // Get the next canvas from the front of the queue
     const personIndex = nextPersonIndex++;
 
-    console.log(`Conductor tick: Starting ${canvasId} with person index ${personIndex}`);
+    console.log(`🎬 NEW ANIMATION: Starting ${canvasId} with person index ${personIndex}`);
 
     // Handle infinite looping of people data
     const loopedPersonIndex = personIndex % shuffledPeople.length;
@@ -217,6 +217,17 @@ function init(canvasId, loopedPersonIndex, absolutePersonIndex) {
     canvas.width = window.innerWidth / 4;
     canvas.height = window.innerHeight;
     canvas.style.display = 'block';
+    canvas.style.backgroundColor = 'black'; // 배경을 검은색으로 설정
+    canvas.style.border = 'none'; // 테두리 제거
+    
+    // 캔버스 상태 확인 로그
+    console.log('🖼️ CANVAS SETUP:', {
+        id: canvasId,
+        width: canvas.width,
+        height: canvas.height,
+        display: canvas.style.display,
+        visible: canvas.offsetWidth > 0 && canvas.offsetHeight > 0
+    });
     cancelAnimation(canvasId);
 
     const originalText = person.englishName.replace(/([a-z])([A-Z])/g, '$1 $2');
